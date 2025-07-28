@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "BoomDashServer/1.0.0": {
+        "runtime": {
+          "BoomDashServer.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "BoomDashServer/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

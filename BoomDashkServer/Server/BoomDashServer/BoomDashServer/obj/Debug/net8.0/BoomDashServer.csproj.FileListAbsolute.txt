@@ -1,0 +1,14 @@
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\bin\Debug\net8.0\BoomDashServer.exe
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\bin\Debug\net8.0\BoomDashServer.deps.json
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\bin\Debug\net8.0\BoomDashServer.runtimeconfig.json
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\bin\Debug\net8.0\BoomDashServer.dll
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\bin\Debug\net8.0\BoomDashServer.pdb
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.GeneratedMSBuildEditorConfig.editorconfig
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.AssemblyInfoInputs.cache
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.AssemblyInfo.cs
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.csproj.CoreCompileInputs.cache
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.dll
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\refint\BoomDashServer.dll
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.pdb
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.genruntimeconfig.cache
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\ref\BoomDashServer.dll
