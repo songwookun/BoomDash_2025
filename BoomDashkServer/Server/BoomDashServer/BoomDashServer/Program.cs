@@ -99,8 +99,39 @@ public static class MatchServer
         }
         finally
         {
-            client.client.Close();
+            CleanupClient(client);
         }
+    }
+
+    static void CleanupClient(ClientState client)
+    {
+        Console.WriteLine($"[정리] {client.nickname} 연결 해제 및 방에서 제거");
+
+        var roomsToRemove = new List<string>();
+        foreach (var kvp in rooms)
+        {
+            var room = kvp.Value;
+            if (room.Players.Contains(client))
+            {
+                room.Players.Remove(client);
+                Console.WriteLine($"[방 퇴장] {client.nickname} → {room.Name}");
+
+                if (room.Players.Count == 0)
+                {
+                    roomsToRemove.Add(room.Name);
+                }
+            }
+        }
+
+        foreach (var roomName in roomsToRemove)
+        {
+            rooms.Remove(roomName);
+            Console.WriteLine($"[방 삭제] {roomName} (빈 방)");
+        }
+
+        try { client.reader?.Close(); } catch { }
+        try { client.writer?.Close(); } catch { }
+        try { client.client?.Close(); } catch { }
     }
 
     static void HandleCreateRoom(ClientState client, string data)
@@ -177,12 +208,26 @@ public static class MatchServer
 
     static void BroadcastRoomList()
     {
+        var clientsToRemove = new List<ClientState>();
+
         foreach (var room in rooms.Values)
         {
             foreach (var player in room.Players)
             {
-                HandleRoomList(player);
+                try
+                {
+                    HandleRoomList(player);
+                }
+                catch
+                {
+                    clientsToRemove.Add(player);
+                }
             }
+        }
+
+        foreach (var client in clientsToRemove)
+        {
+            CleanupClient(client);
         }
     }
 
@@ -204,10 +249,17 @@ public static class MatchServer
 
         public void Send(MessageType type, string data)
         {
-            var msg = new GameMessage { Type = type, Data = data };
-            string json = JsonSerializer.Serialize(msg);
-            writer.WriteLine(json);
-            Console.WriteLine($"[전송 → {nickname}] {type} : {data}");
+            try
+            {
+                var msg = new GameMessage { Type = type, Data = data };
+                string json = JsonSerializer.Serialize(msg);
+                writer.WriteLine(json);
+                Console.WriteLine($"[전송 → {nickname}] {type} : {data}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[전송 실패] {nickname}: {ex.Message}");
+            }
         }
     }
 }

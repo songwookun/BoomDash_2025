@@ -12,3 +12,4 @@ D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\ob
 D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.pdb
 D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.genruntimeconfig.cache
 D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\ref\BoomDashServer.dll
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.sourcelink.json
