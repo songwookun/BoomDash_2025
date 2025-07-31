@@ -3,9 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 
 class Program
 {
@@ -21,7 +20,9 @@ public enum MessageType
     JoinRoom,
     StartGame,
     RoomList,
-    Error
+    Error,
+    MyOrder,
+    Move
 }
 
 public class GameMessage
@@ -37,6 +38,12 @@ public class Room
     public string Password { get; set; } = string.Empty;
     public int MaxPlayers { get; set; }
     public List<MatchServer.ClientState> Players { get; set; } = new();
+}
+
+public class JoinRoomRequest
+{
+    public string roomName { get; set; }
+    public string password { get; set; }
 }
 
 public static class MatchServer
@@ -63,7 +70,6 @@ public static class MatchServer
     {
         playerCount++;
         client.nickname = $"UnityPlayer{playerCount}";
-
         Console.WriteLine($"[연결] {client.nickname} ({client.id}) 연결됨");
 
         try
@@ -74,7 +80,7 @@ public static class MatchServer
                 if (line == null) break;
                 Console.WriteLine($"[수신] {client.nickname}: {line}");
 
-                var msg = JsonSerializer.Deserialize<GameMessage>(line);
+                var msg = JsonConvert.DeserializeObject<GameMessage>(line);
                 if (msg == null) continue;
 
                 switch (msg.Type)
@@ -82,13 +88,17 @@ public static class MatchServer
                     case MessageType.CreateRoom:
                         HandleCreateRoom(client, msg.Data);
                         break;
-
                     case MessageType.JoinRoom:
                         HandleJoinRoom(client, msg.Data);
                         break;
-
                     case MessageType.RoomList:
                         HandleRoomList(client);
+                        break;
+                    case MessageType.MyOrder:
+                        HandleMyOrder(client, msg.Data);
+                        break;
+                    case MessageType.Move:
+                        RelayMovement(client, msg.Data);
                         break;
                 }
             }
@@ -106,8 +116,8 @@ public static class MatchServer
     static void CleanupClient(ClientState client)
     {
         Console.WriteLine($"[정리] {client.nickname} 연결 해제 및 방에서 제거");
-
         var roomsToRemove = new List<string>();
+
         foreach (var kvp in rooms)
         {
             var room = kvp.Value;
@@ -115,11 +125,8 @@ public static class MatchServer
             {
                 room.Players.Remove(client);
                 Console.WriteLine($"[방 퇴장] {client.nickname} → {room.Name}");
-
                 if (room.Players.Count == 0)
-                {
                     roomsToRemove.Add(room.Name);
-                }
             }
         }
 
@@ -136,39 +143,34 @@ public static class MatchServer
 
     static void HandleCreateRoom(ClientState client, string data)
     {
-        var room = JsonSerializer.Deserialize<Room>(data);
+        var room = JsonConvert.DeserializeObject<Room>(data);
         if (room == null || rooms.ContainsKey(room.Name))
         {
             client.Send(MessageType.Error, "방 생성 실패 또는 이미 존재합니다.");
             return;
         }
-
         room.Players.Add(client);
         rooms.Add(room.Name, room);
         Console.WriteLine($"[방 생성] {room.Name} (공개 여부: {(room.IsPrivate ? "비공개" : "공개")})");
-
         BroadcastRoomList();
     }
 
     static void HandleJoinRoom(ClientState client, string data)
     {
-        using var doc = JsonDocument.Parse(data);
-        var root = doc.RootElement;
-        string roomName = root.GetProperty("roomName").GetString() ?? "";
-        string password = root.GetProperty("password").GetString() ?? "";
+        var joinData = JsonConvert.DeserializeObject<JoinRoomRequest>(data);
+        string roomName = joinData?.roomName ?? "";
+        string password = joinData?.password ?? "";
 
         if (!rooms.TryGetValue(roomName, out var room))
         {
             client.Send(MessageType.Error, "방이 존재하지 않습니다.");
             return;
         }
-
         if (room.IsPrivate && room.Password != password)
         {
             client.Send(MessageType.Error, "비밀번호가 일치하지 않습니다.");
             return;
         }
-
         if (room.Players.Count >= room.MaxPlayers)
         {
             client.Send(MessageType.Error, "방이 가득 찼습니다.");
@@ -190,7 +192,6 @@ public static class MatchServer
     static void HandleRoomList(ClientState client)
     {
         var summaries = new List<object>();
-
         foreach (var kvp in rooms)
         {
             summaries.Add(new
@@ -201,33 +202,63 @@ public static class MatchServer
                 max = kvp.Value.MaxPlayers
             });
         }
-
-        string json = JsonSerializer.Serialize(summaries);
+        string json = JsonConvert.SerializeObject(summaries);
         client.Send(MessageType.RoomList, json);
     }
 
     static void BroadcastRoomList()
     {
         var clientsToRemove = new List<ClientState>();
-
         foreach (var room in rooms.Values)
         {
             foreach (var player in room.Players)
             {
-                try
-                {
-                    HandleRoomList(player);
-                }
-                catch
-                {
-                    clientsToRemove.Add(player);
-                }
+                try { HandleRoomList(player); }
+                catch { clientsToRemove.Add(player); }
             }
         }
-
         foreach (var client in clientsToRemove)
         {
             CleanupClient(client);
+        }
+    }
+
+    static void HandleMyOrder(ClientState client, string roomName)
+    {
+        Console.WriteLine($"[MyOrder 요청] {client.nickname} → {roomName}");
+        if (rooms.TryGetValue(roomName, out var room))
+        {
+            int index = room.Players.IndexOf(client);
+            if (index != -1)
+            {
+                client.Send(MessageType.MyOrder, index.ToString());
+                Console.WriteLine($"[순번 전송] {client.nickname} → {index}");
+            }
+            else
+            {
+                client.Send(MessageType.Error, "방에서 클라이언트를 찾을 수 없습니다.");
+            }
+        }
+        else
+        {
+            client.Send(MessageType.Error, "해당 방이 존재하지 않습니다.");
+        }
+    }
+
+    static void RelayMovement(ClientState sender, string data)
+    {
+        foreach (var room in rooms.Values)
+        {
+            if (room.Players.Contains(sender))
+            {
+                foreach (var player in room.Players)
+                {
+                    if (player != sender)
+                    {
+                        player.Send(MessageType.Move, data);
+                    }
+                }
+            }
         }
     }
 
@@ -252,7 +283,7 @@ public static class MatchServer
             try
             {
                 var msg = new GameMessage { Type = type, Data = data };
-                string json = JsonSerializer.Serialize(msg);
+                string json = JsonConvert.SerializeObject(msg);
                 writer.WriteLine(json);
                 Console.WriteLine($"[전송 → {nickname}] {type} : {data}");
             }

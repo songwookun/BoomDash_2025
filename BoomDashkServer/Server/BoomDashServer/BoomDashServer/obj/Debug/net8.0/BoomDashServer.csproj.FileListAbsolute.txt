@@ -13,3 +13,9 @@ D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\ob
 D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.genruntimeconfig.cache
 D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\ref\BoomDashServer.dll
 D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.sourcelink.json
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\bin\Debug\net8.0\Newtonsoft.Json.dll
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDashServer.csproj.AssemblyReference.cache
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\obj\Debug\net8.0\BoomDash.7AFE9B62.Up2Date
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\bin\Debug\net8.0\System.Security.Permissions.dll
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\bin\Debug\net8.0\System.Windows.Extensions.dll
+D:\UnityProject\BoomDash\BoomDashkServer\Server\BoomDashServer\BoomDashServer\bin\Debug\net8.0\runtimes\win\lib\net8.0\System.Windows.Extensions.dll

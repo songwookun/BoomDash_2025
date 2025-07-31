@@ -1,13 +1,17 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 using System;
+using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
-using UnityEngine.SceneManagement;
+using Newtonsoft.Json;
 
 public class UnityClient : MonoBehaviour
 {
+    public static UnityClient Instance;
+
     [Header("패널들")]
     public GameObject createRoomPanel;
     public GameObject joinRoomPanel;
@@ -32,22 +36,29 @@ public class UnityClient : MonoBehaviour
     public Button openJoinPopupButton;
 
     private TcpClient client;
-    private NetworkStream stream;
+    private StreamReader reader;
+    private StreamWriter writer;
+    private Thread receiveThread;
     private bool isConnected = false;
 
-    private byte[] buffer = new byte[2048];
-    private StringBuilder incomingData = new();
-
-    private bool connectionErrorLogged = false;
-
-    void Start()
+    private void Awake()
     {
-        ConnectToServer();
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
 
+        Instance = this;
+        DontDestroyOnLoad(gameObject);
+        ConnectToServer();
+    }
+
+    private void Start()
+    {
         createButton.onClick.AddListener(CreateRoom);
         joinButton.onClick.AddListener(JoinRoom);
         isPrivateDropdown.onValueChanged.AddListener(OnPrivacyChanged);
-
         openCreatePopupButton.onClick.AddListener(() => ShowPanel(createRoomPanel));
         openJoinPopupButton.onClick.AddListener(() => ShowPanel(joinRoomPanel));
         cancelCreateButton.onClick.AddListener(() => ShowPanel(mainLobbyPanel));
@@ -57,36 +68,110 @@ public class UnityClient : MonoBehaviour
         passwordInput.gameObject.SetActive(false);
     }
 
-    void ShowPanel(GameObject panel)
-    {
-        createRoomPanel.SetActive(false);
-        joinRoomPanel.SetActive(false);
-        mainLobbyPanel.SetActive(false);
-        panel.SetActive(true);
-    }
-
-    void OnPrivacyChanged(int index)
-    {
-        passwordInput.gameObject.SetActive(index == 1);
-    }
-
     void ConnectToServer()
     {
         try
         {
             client = new TcpClient("127.0.0.1", 7777);
-            stream = client.GetStream();
+            var stream = client.GetStream();
+            reader = new StreamReader(stream, Encoding.UTF8);
+            writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
+
+            receiveThread = new Thread(ReceiveLoop);
+            receiveThread.Start();
+
             isConnected = true;
             Debug.Log("서버 연결 성공");
-
-            Thread t = new Thread(ReceiveLoop);
-            t.IsBackground = true;
-            t.Start();
         }
         catch (Exception e)
         {
-            Debug.LogError($"서버 연결 실패: {e.Message}");
+            Debug.LogError("서버 연결 실패: " + e.Message);
         }
+    }
+
+    void ReceiveLoop()
+    {
+        try
+        {
+            while (true)
+            {
+                string line = reader.ReadLine();
+                if (line == null) break;
+
+                GameMessage msg = JsonConvert.DeserializeObject<GameMessage>(line);
+                if (msg == null) continue;
+
+                Debug.Log($"[수신] {msg.Type} : {msg.Data}");
+
+                switch (msg.Type)
+                {
+                    case MessageType.StartGame:
+                        string roomName = msg.Data;
+                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                        {
+                            SceneManager.LoadScene("GameScene");
+                            StartCoroutine(WaitThenRequestMyOrder(roomName));
+                        });
+                        break;
+
+                    case MessageType.MyOrder:
+                        int index = int.Parse(msg.Data);
+                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                        {
+                            GameManager.Instance.SpawnPlayers(index);
+                        });
+                        break;
+
+                    case MessageType.Move:
+                        var moveData = JsonConvert.DeserializeObject<MoveData>(msg.Data);
+                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                        {
+                            GameManager.Instance.UpdateOtherPlayerPosition(moveData.x, moveData.y);
+                        });
+                        break;
+
+                    case MessageType.Error:
+                        Debug.LogWarning("[서버 오류] " + msg.Data);
+                        break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[ReceiveLoop 예외] {ex.Message}");
+        }
+    }
+    private System.Collections.IEnumerator WaitThenRequestMyOrder(string roomName)
+    {
+        yield return new WaitForSeconds(0.5f); 
+        SendToServer(new GameMessage
+        {
+            Type = MessageType.MyOrder,
+            Data = roomName
+        });
+    }
+    void SendToServer(GameMessage msg)
+    {
+        try
+        {
+            string json = JsonConvert.SerializeObject(msg);
+            writer.WriteLine(json);
+            Debug.Log($"[전송] {msg.Type} : {msg.Data}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("서버 전송 실패: " + e.Message);
+        }
+    }
+
+    public void SendMove(float x, float y)
+    {
+        var move = new MoveData { x = x, y = y };
+        SendToServer(new GameMessage
+        {
+            Type = MessageType.Move,
+            Data = JsonConvert.SerializeObject(move)
+        });
     }
 
     void CreateRoom()
@@ -104,7 +189,7 @@ public class UnityClient : MonoBehaviour
         SendToServer(new GameMessage
         {
             Type = MessageType.CreateRoom,
-            Data = JsonUtility.ToJson(room)
+            Data = JsonConvert.SerializeObject(room)
         });
     }
 
@@ -121,69 +206,32 @@ public class UnityClient : MonoBehaviour
         SendToServer(new GameMessage
         {
             Type = MessageType.JoinRoom,
-            Data = JsonUtility.ToJson(joinData)
+            Data = JsonConvert.SerializeObject(joinData)
         });
     }
 
-    void SendToServer(GameMessage msg)
+    void ShowPanel(GameObject panel)
     {
-        try
-        {
-            string json = JsonUtility.ToJson(msg);
-            byte[] data = Encoding.UTF8.GetBytes(json + "\n");
-            stream.Write(data, 0, data.Length);
-            Debug.Log($"[보냄] {json}");
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("서버 전송 실패: " + e.Message);
-        }
+        createRoomPanel.SetActive(false);
+        joinRoomPanel.SetActive(false);
+        mainLobbyPanel.SetActive(false);
+        panel.SetActive(true);
     }
 
-    void ReceiveLoop()
+    void OnPrivacyChanged(int index)
     {
-        while (isConnected)
-        {
-            try
-            {
-                int bytesRead = stream.Read(buffer, 0, buffer.Length);
-                if (bytesRead <= 0) continue;
-
-                string json = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                Debug.Log($"[수신] {json}");
-
-                GameMessage msg = JsonUtility.FromJson<GameMessage>(json);
-
-                switch (msg.Type)
-                {
-                    case MessageType.StartGame:
-                        Debug.Log("매칭 완료, 게임 시작!");
-                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
-                        {
-                            SceneManager.LoadScene("GameScene");
-                        });
-                        break;
-
-                    case MessageType.Error:
-                        Debug.LogWarning("서버 에러: " + msg.Data);
-                        break;
-
-                    default:
-                        Debug.Log("알 수 없는 메시지: " + msg.Type);
-                        break;
-                }
-            }
-            catch (Exception)
-            {
-                if (isConnected)
-                {
-                    Debug.LogWarning("서버와의 연결이 종료되었습니다.");
-                    isConnected = false;
-                }
-            }
-        }
+        passwordInput.gameObject.SetActive(index == 1);
     }
 
+    private void OnApplicationQuit()
+    {
+        receiveThread?.Abort();
+        writer?.Close();
+        reader?.Close();
+        client?.Close();
+    }
+
+    // 메시지 및 데이터 구조 정의
     [Serializable]
     public class RoomData
     {
@@ -207,5 +255,21 @@ public class UnityClient : MonoBehaviour
         public string Data;
     }
 
-    public enum MessageType { CreateRoom, JoinRoom, StartGame, RoomList, Error }
+    [Serializable]
+    public class MoveData
+    {
+        public float x;
+        public float y;
+    }
+
+    public enum MessageType
+    {
+        CreateRoom,
+        JoinRoom,
+        StartGame,
+        RoomList,
+        Error,
+        MyOrder,
+        Move
+    }
 }

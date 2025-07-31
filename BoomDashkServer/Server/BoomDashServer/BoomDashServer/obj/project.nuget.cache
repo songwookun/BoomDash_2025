@@ -1,8 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "G7KyTiomuG2PNNjqpqs/izVf8Ela/JXE2JNOjgCNMnGxgLzMd1IjvU+rcsx/qLa9UmeOvA7vdO6ivFWkZoDyVw==",
+  "dgSpecHash": "a8U29Z/Z4kntliZzKA15+WHnI26Zx9xxJ14Qg5VAqZ8KrS6entJ27bD+14K7PXDM9rWe4Sgk5Ie5KJcfCmBwJg==",
   "success": true,
   "projectFilePath": "D:\\UnityProject\\BoomDash\\BoomDashkServer\\Server\\BoomDashServer\\BoomDashServer\\BoomDashServer.csproj",
-  "expectedPackageFiles": [],
+  "expectedPackageFiles": [
+    "C:\\Users\\Gold\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512",
+    "C:\\Users\\Gold\\.nuget\\packages\\system.security.permissions\\9.0.7\\system.security.permissions.9.0.7.nupkg.sha512",
+    "C:\\Users\\Gold\\.nuget\\packages\\system.windows.extensions\\9.0.7\\system.windows.extensions.9.0.7.nupkg.sha512"
+  ],
   "logs": []
 }
