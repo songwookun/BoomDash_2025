@@ -13,6 +13,7 @@ public class GameManager : MonoBehaviour
     void Awake()
     {
         Instance = this;
+        PlayerStatLoader.LoadStats();
     }
 
     public void SpawnPlayers(int myIndex)

@@ -4,7 +4,13 @@ using Newtonsoft.Json;
 public class PlayerController : MonoBehaviour
 {
     public bool isMine = false;
-    public float speed = 5f;
+    public int playerId = 0;
+    private float speed;
+    void Start()
+    {
+        speed = PlayerStatLoader.GetMoveSpeed(playerId);
+        Debug.Log($"[PlayerController] ID {playerId} 이동속도: {speed}");
+    }
 
     void Update()
     {
@@ -17,9 +23,7 @@ public class PlayerController : MonoBehaviour
         if (dir.magnitude > 0.01f)
         {
             transform.position += dir * speed * Time.deltaTime;
-
-            Vector3 pos = transform.position;
-            UnityClient.Instance.SendMove(pos.x, pos.y);
+            UnityClient.Instance.SendMove(transform.position.x, transform.position.y);
         }
     }
 
