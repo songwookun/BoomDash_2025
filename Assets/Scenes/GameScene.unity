@@ -873,13 +873,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   player1Prefab: {fileID: 6548126648351254017, guid: fd210d5d936171844991332d2c92bc03, type: 3}
   player2Prefab: {fileID: 954288251555646401, guid: 474abfb86feb8774098ea2d1b913a2b6, type: 3}
-  spawnPoints:
-  - {fileID: 841354732}
-  - {fileID: 513325604}
-  - {fileID: 1281811145}
-  - {fileID: 404852757}
-  - {fileID: 853790270}
-  - {fileID: 1405103515}
+  areaPrefab: {fileID: 4208869367485248744, guid: dc4d61f78eda61a44b7d67e18cb6d45f, type: 3}
+  area2Prefab: {fileID: 719866810184792790, guid: e3c3603dfbbe0f34fb8640e1fc4c1caa, type: 3}
 --- !u!4 &1570262069
 Transform:
   m_ObjectHideFlags: 0
