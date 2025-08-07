@@ -182,9 +182,17 @@ public static class MatchServer
 
         if (room.Players.Count == room.MaxPlayers)
         {
+            bool swap = new Random().Next(0, 2) == 1;
+
             foreach (var p in room.Players)
             {
-                p.Send(MessageType.StartGame, room.Name);
+                var gameStartPayload = new
+                {
+                    roomName = room.Name,
+                    swap = swap
+                };
+                string json = JsonConvert.SerializeObject(gameStartPayload);
+                p.Send(MessageType.StartGame, json);
             }
         }
     }

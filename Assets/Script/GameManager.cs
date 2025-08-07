@@ -21,28 +21,15 @@ public class GameManager : MonoBehaviour
         PlayerStatLoader.LoadStats();
     }
 
-    public void SpawnPlayers(int myIndex)
+    public void SpawnPlayers(int myIndex, bool swap)
     {
-        Debug.Log($"[GameManager] 플레이어 스폰 - 내 인덱스: {myIndex}");
+        Debug.Log($"[GameManager] 플레이어 스폰 - 내 인덱스: {myIndex}, swap: {swap}");
 
-        bool swap = Random.value > 0.5f;
+        Vector3 areaSpawnPos_LB = new Vector3(-8, -4, 0);
+        Vector3 areaSpawnPos_RT = new Vector3(8, 4, 0);
 
-        Vector3 areaSpawnPos_LB = new Vector3(-8, -4, 0); 
-        Vector3 areaSpawnPos_RT = new Vector3(8, 4, 0);   
-
-        GameObject areaObj;
-        GameObject area2Obj;
-
-        if (swap)
-        {
-            areaObj = Instantiate(areaPrefab, areaSpawnPos_LB, Quaternion.identity);
-            area2Obj = Instantiate(area2Prefab, areaSpawnPos_RT, Quaternion.identity);
-        }
-        else
-        {
-            areaObj = Instantiate(areaPrefab, areaSpawnPos_RT, Quaternion.identity);
-            area2Obj = Instantiate(area2Prefab, areaSpawnPos_LB, Quaternion.identity);
-        }
+        GameObject areaObj = Instantiate(areaPrefab, swap ? areaSpawnPos_LB : areaSpawnPos_RT, Quaternion.identity);
+        GameObject area2Obj = Instantiate(area2Prefab, swap ? areaSpawnPos_RT : areaSpawnPos_LB, Quaternion.identity);
 
         areaPos = areaObj.transform;
         area2Pos = area2Obj.transform;
@@ -55,7 +42,6 @@ public class GameManager : MonoBehaviour
             return areaTransform.position + new Vector3(offsetX, offsetY, 0);
         }
 
-        // Player 스폰
         int otherIndex = 1 - myIndex;
         GameObject myPrefab = myIndex == 0 ? player1Prefab : player2Prefab;
         GameObject otherPrefab = myIndex == 0 ? player2Prefab : player1Prefab;

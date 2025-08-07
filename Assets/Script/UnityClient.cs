@@ -41,6 +41,8 @@ public class UnityClient : MonoBehaviour
     private Thread receiveThread;
     private bool isConnected = false;
 
+    private bool cachedSwap = false; 
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -106,11 +108,11 @@ public class UnityClient : MonoBehaviour
                 switch (msg.Type)
                 {
                     case MessageType.StartGame:
-                        string roomName = msg.Data;
+                        var startInfo = JsonConvert.DeserializeObject<StartGameInfo>(msg.Data);
                         UnityMainThreadDispatcher.Instance().Enqueue(() =>
                         {
                             SceneManager.LoadScene("GameScene");
-                            StartCoroutine(WaitThenRequestMyOrder(roomName));
+                            StartCoroutine(WaitThenRequestMyOrder(startInfo.roomName, startInfo.swap));
                         });
                         break;
 
@@ -118,7 +120,7 @@ public class UnityClient : MonoBehaviour
                         int index = int.Parse(msg.Data);
                         UnityMainThreadDispatcher.Instance().Enqueue(() =>
                         {
-                            GameManager.Instance.SpawnPlayers(index);
+                            GameManager.Instance.SpawnPlayers(index, cachedSwap);
                         });
                         break;
 
@@ -141,15 +143,18 @@ public class UnityClient : MonoBehaviour
             Debug.LogError($"[ReceiveLoop ¿¹¿Ü] {ex.Message}");
         }
     }
-    private System.Collections.IEnumerator WaitThenRequestMyOrder(string roomName)
+
+    private System.Collections.IEnumerator WaitThenRequestMyOrder(string roomName, bool swap)
     {
-        yield return new WaitForSeconds(0.5f); 
+        cachedSwap = swap;
+        yield return new WaitForSeconds(0.5f);
         SendToServer(new GameMessage
         {
             Type = MessageType.MyOrder,
             Data = roomName
         });
     }
+
     void SendToServer(GameMessage msg)
     {
         try
@@ -260,6 +265,13 @@ public class UnityClient : MonoBehaviour
     {
         public float x;
         public float y;
+    }
+
+    [Serializable]
+    public class StartGameInfo
+    {
+        public string roomName;
+        public bool swap;
     }
 
     public enum MessageType

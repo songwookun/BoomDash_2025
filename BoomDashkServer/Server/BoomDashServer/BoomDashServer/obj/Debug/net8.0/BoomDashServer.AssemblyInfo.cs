@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BoomDashServer")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f77716c8a9f9d96244614e3f665134992c9f2476")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+28ecfb89605dff676ae559eb99b988b5041bd97a")]
 [assembly: System.Reflection.AssemblyProductAttribute("BoomDashServer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BoomDashServer")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
