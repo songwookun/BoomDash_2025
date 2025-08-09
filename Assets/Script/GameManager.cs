@@ -25,14 +25,26 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log($"[GameManager] 플레이어 스폰 - 내 인덱스: {myIndex}, swap: {swap}");
 
-        Vector3 areaSpawnPos_LB = new Vector3(-8, -4, 0);
-        Vector3 areaSpawnPos_RT = new Vector3(8, 4, 0);
+        Vector3 posLB = new Vector3(-8, -4, 0);
+        Vector3 posRT = new Vector3(8, 4, 0);
 
-        GameObject areaObj = Instantiate(areaPrefab, swap ? areaSpawnPos_LB : areaSpawnPos_RT, Quaternion.identity);
-        GameObject area2Obj = Instantiate(area2Prefab, swap ? areaSpawnPos_RT : areaSpawnPos_LB, Quaternion.identity);
+        GameObject area1 = Instantiate(areaPrefab, posRT, Quaternion.identity); 
+        GameObject area2 = Instantiate(area2Prefab, posLB, Quaternion.identity); 
 
-        areaPos = areaObj.transform;
-        area2Pos = area2Obj.transform;
+        Transform areaRT = area1.transform;
+        Transform areaLB = area2.transform;
+
+        Transform myArea, otherArea;
+        if (myIndex == 0) 
+        {
+            myArea = swap ? areaRT : areaLB;
+            otherArea = swap ? areaLB : areaRT;
+        }
+        else 
+        {
+            myArea = swap ? areaLB : areaRT;
+            otherArea = swap ? areaRT : areaLB;
+        }
 
         Vector3 GetInnerSpawn(Transform areaTransform)
         {
@@ -42,19 +54,16 @@ public class GameManager : MonoBehaviour
             return areaTransform.position + new Vector3(offsetX, offsetY, 0);
         }
 
-        int otherIndex = 1 - myIndex;
         GameObject myPrefab = myIndex == 0 ? player1Prefab : player2Prefab;
         GameObject otherPrefab = myIndex == 0 ? player2Prefab : player1Prefab;
 
-        Vector3 mySpawn = myIndex == 0 ? GetInnerSpawn(areaPos) : GetInnerSpawn(area2Pos);
-        Vector3 otherSpawn = myIndex == 0 ? GetInnerSpawn(area2Pos) : GetInnerSpawn(areaPos);
-
-        myPlayer = Instantiate(myPrefab, mySpawn, Quaternion.identity);
+        myPlayer = Instantiate(myPrefab, GetInnerSpawn(myArea), Quaternion.identity);
         myPlayer.GetComponent<PlayerController>().isMine = true;
 
-        otherPlayer = Instantiate(otherPrefab, otherSpawn, Quaternion.identity);
+        otherPlayer = Instantiate(otherPrefab, GetInnerSpawn(otherArea), Quaternion.identity);
         otherPlayer.GetComponent<PlayerController>().isMine = false;
     }
+
 
     public void UpdateOtherPlayerPosition(float x, float y)
     {
