@@ -26,13 +26,35 @@ public enum MessageType
     Move,
     ItemSpawn,
     ItemPickup,
-    ItemRemove
+    ItemRemove,
+    ApplyBuff,
+    ScoreUpdate,
+    BagUpdate,    
+    DepositBag
 }
 
 public class GameMessage
 {
     public MessageType Type { get; set; }
     public string Data { get; set; } = string.Empty;
+}
+
+public enum EffectType
+{
+    None = 0,
+    Score = 1,
+    PlayerMoveSpeedUp = 2
+}
+
+public class ItemDef
+{
+    public int itemID;
+    public string itemName = "";
+    public string itemCategory = "";
+    public EffectType effectType = EffectType.None;
+    public float value1 = 0f;
+    public float value2 = 0f;
+    public float duration = 0f;
 }
 
 public class Room
@@ -44,6 +66,7 @@ public class Room
     public List<MatchServer.ClientState> Players { get; set; } = new();
     public CancellationTokenSource? DropCts { get; set; }
     public HashSet<string> ActiveItemIds { get; set; } = new();
+    public Dictionary<string, int> ItemMap { get; set; } = new();
 }
 
 public class JoinRoomRequest
@@ -67,13 +90,16 @@ public static class MatchServer
     private const int port = 7777;
     private static Dictionary<string, Room> rooms = new();
     private static int playerCount = 0;
-
     private static List<ItemDropEntry> dropTable = new();
+    private static Dictionary<int, ItemDef> itemDefs = new();
+
     private const float minX = -8f, maxX = 8f, minY = -4f, maxY = 4f;
 
     public static void Start()
     {
+        LoadItemDefs();
         LoadDropTable();
+
         listener = new TcpListener(IPAddress.Any, port);
         listener.Start();
         Console.WriteLine($"[서버] 시작됨 - 포트 {port}");
@@ -84,7 +110,52 @@ public static class MatchServer
             Task.Run(() => HandleClient(new ClientState(client)));
         }
     }
+    private static void LoadItemDefs()
+    {
+        try
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "Item.csv");
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"[경고] Item.csv 없음: {path}");
+                return;
+            }
+            var lines = File.ReadAllLines(path);
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var raw = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                if (raw.StartsWith("#")) continue;
 
+                var cols = raw.Split(',');
+                if (cols.Length < 7) { Console.WriteLine($"[Item.csv] 형식 오류: {raw}"); continue; }
+
+                try
+                {
+                    var def = new ItemDef
+                    {
+                        itemID = int.Parse(cols[0]),
+                        itemName = cols[1],
+                        itemCategory = cols[2],
+                        effectType = Enum.TryParse<EffectType>(cols[3], out var et) ? et : EffectType.None,
+                        value1 = float.Parse(cols[4]),
+                        value2 = float.Parse(cols[5]),
+                        duration = float.Parse(cols[6])
+                    };
+                    itemDefs[def.itemID] = def;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Item.csv] 잘못된 라인 무시: {raw} ({ex.Message})");
+                }
+            }
+            Console.WriteLine($"[Item.csv] {itemDefs.Count}개 로드");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Item.csv 로드 오류] {ex.Message}");
+        }
+    }
     private static void LoadDropTable()
     {
         try
@@ -131,7 +202,6 @@ public static class MatchServer
             Console.WriteLine($"[드랍테이블 로드 오류] {ex.Message}");
         }
     }
-
     static async Task HandleClient(ClientState client)
     {
         playerCount++;
@@ -169,6 +239,9 @@ public static class MatchServer
                     case MessageType.ItemPickup:
                         HandleItemPickup(client, msg.Data);
                         break;
+                    case MessageType.DepositBag:
+                        HandleDepositBag(client);
+                        break;
                 }
             }
         }
@@ -181,7 +254,21 @@ public static class MatchServer
             CleanupClient(client);
         }
     }
+    static void HandleDepositBag(ClientState sender)
+    {
+        if (sender.bag <= 0) return;
 
+        int add = sender.bag;
+        sender.bag = 0;
+        sender.score += add;
+
+        sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
+
+        var payload = new { score = sender.score, add = add };
+        sender.Send(MessageType.ScoreUpdate, JsonConvert.SerializeObject(payload));
+
+        Console.WriteLine($"[Deposit] {sender.nickname} 입금 +{add} → score={sender.score}");
+    }
     static void CleanupClient(ClientState client)
     {
         Console.WriteLine($"[정리] {client.nickname} 연결 해제 및 방에서 제거");
@@ -202,10 +289,10 @@ public static class MatchServer
                     room.DropCts?.Dispose();
                     room.DropCts = null;
                     room.ActiveItemIds.Clear();
+                    room.ItemMap.Clear();
                 }
             }
         }
-
         foreach (var roomName in roomsToRemove)
         {
             rooms.Remove(roomName);
@@ -216,7 +303,6 @@ public static class MatchServer
         try { client.writer?.Close(); } catch { }
         try { client.client?.Close(); } catch { }
     }
-
     static void HandleCreateRoom(ClientState client, string data)
     {
         var room = JsonConvert.DeserializeObject<Room>(data);
@@ -262,11 +348,7 @@ public static class MatchServer
 
             foreach (var p in room.Players)
             {
-                var gameStartPayload = new
-                {
-                    roomName = room.Name,
-                    swap = swap
-                };
+                var gameStartPayload = new { roomName = room.Name, swap = swap };
                 string json = JsonConvert.SerializeObject(gameStartPayload);
                 p.Send(MessageType.StartGame, json);
             }
@@ -373,10 +455,7 @@ public static class MatchServer
                     {
                         await Task.Delay(TimeSpan.FromSeconds(entry.dropTime), token);
                     }
-                    catch
-                    {
-                        break;
-                    }
+                    catch { break; }
 
                     int qty = rng.Next(entry.dropQuantityMin, entry.dropQuantityMax + 1);
                     if (qty <= 0) continue;
@@ -384,19 +463,13 @@ public static class MatchServer
                     for (int i = 0; i < qty; i++)
                     {
                         string instanceId = Guid.NewGuid().ToString();
-
                         float x = (float)(rng.NextDouble() * (maxX - minX) + minX);
                         float y = (float)(rng.NextDouble() * (maxY - minY) + minY);
 
                         room.ActiveItemIds.Add(instanceId);
+                        room.ItemMap[instanceId] = entry.itemID;
 
-                        var payload = new
-                        {
-                            instanceId = instanceId,
-                            itemId = entry.itemID,
-                            x = x,
-                            y = y
-                        };
+                        var payload = new { instanceId = instanceId, itemId = entry.itemID, x = x, y = y };
                         string json = JsonConvert.SerializeObject(payload);
 
                         foreach (var p in room.Players)
@@ -418,18 +491,81 @@ public static class MatchServer
         {
             if (!room.Players.Contains(sender)) continue;
 
+            if (!room.ItemMap.TryGetValue(instanceId, out int itemId))
+            {
+                Console.WriteLine($"[ItemPickup] map에 없음 {instanceId}");
+                return;
+            }
+
+            if (itemId == 10000)
+            {
+                if (sender.bag >= 5)
+                {
+                    sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
+                    Console.WriteLine($"[Bag] {sender.nickname} 가방 FULL, 픽업 거절");
+                    return;
+                }
+
+                room.ActiveItemIds.Remove(instanceId);
+                room.ItemMap.Remove(instanceId);
+
+                foreach (var p in room.Players)
+                    p.Send(MessageType.ItemRemove, instanceId);
+
+                sender.bag += 1;
+                sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
+                Console.WriteLine($"[Bag] {sender.nickname} 골드 +1 → bag={sender.bag}");
+                return;
+            }
+
             if (room.ActiveItemIds.Remove(instanceId))
             {
                 foreach (var p in room.Players)
                     p.Send(MessageType.ItemRemove, instanceId);
 
                 Console.WriteLine($"[ItemPickup] room={room.Name} inst={instanceId} by={sender.nickname}");
+                ApplyItemEffect(room, sender, itemId);
+                room.ItemMap.Remove(instanceId);
             }
             else
             {
                 Console.WriteLine($"[ItemPickup 무시] {sender.nickname} - 이미 주워간 아이템({instanceId})");
             }
             return;
+        }
+    }
+
+    static void ApplyItemEffect(Room room, ClientState target, int itemId)
+    {
+        if (!itemDefs.TryGetValue(itemId, out var def))
+        {
+            Console.WriteLine($"[효과 적용 실패] itemId {itemId} 정의 없음");
+            return;
+        }
+
+        switch (def.effectType)
+        {
+            case EffectType.Score:
+                target.score += (int)def.value1;
+                var scorePayload = new { score = target.score, add = (int)def.value1 };
+                target.Send(MessageType.ScoreUpdate, JsonConvert.SerializeObject(scorePayload));
+                Console.WriteLine($"[Score] {target.nickname} +{def.value1} → {target.score}");
+                break;
+
+            case EffectType.PlayerMoveSpeedUp:
+                var buffPayload = new
+                {
+                    type = "PlayerMoveSpeedUp",
+                    value = def.value1,
+                    duration = def.duration
+                };
+                target.Send(MessageType.ApplyBuff, JsonConvert.SerializeObject(buffPayload));
+                Console.WriteLine($"[Buff] {target.nickname} MoveSpeed +{def.value1} for {def.duration}s");
+                break;
+
+            default:
+                Console.WriteLine($"[효과 미정의] {def.effectType}");
+                break;
         }
     }
 
@@ -440,6 +576,8 @@ public static class MatchServer
         public StreamWriter writer;
         public string id = Guid.NewGuid().ToString();
         public string nickname = "";
+        public int score = 0;
+        public int bag = 0;
 
         public ClientState(TcpClient c)
         {

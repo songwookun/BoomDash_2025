@@ -104,49 +104,81 @@ public class UnityClient : MonoBehaviour
                 switch (msg.Type)
                 {
                     case MessageType.StartGame:
-                        var startInfo = JsonConvert.DeserializeObject<StartGameInfo>(msg.Data);
-                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
                         {
-                            SceneManager.LoadScene("GameScene");
-                            StartCoroutine(WaitThenRequestMyOrder(startInfo.roomName, startInfo.swap));
-                        });
-                        break;
+                            var startInfo = JsonConvert.DeserializeObject<StartGameInfo>(msg.Data);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                SceneManager.LoadScene("GameScene");
+                                StartCoroutine(WaitThenRequestMyOrder(startInfo.roomName, startInfo.swap));
+                            });
+                            break;
+                        }
 
                     case MessageType.MyOrder:
-                        int index = int.Parse(msg.Data);
-                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
                         {
-                            GameManager.Instance.SpawnPlayers(index, cachedSwap);
-                        });
-                        break;
+                            int index = int.Parse(msg.Data);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                GameManager.Instance.SpawnPlayers(index, cachedSwap);
+                            });
+                            break;
+                        }
 
                     case MessageType.Move:
-                        var moveData = JsonConvert.DeserializeObject<MoveData>(msg.Data);
-                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
                         {
-                            GameManager.Instance.UpdateOtherPlayerPosition(moveData.x, moveData.y);
-                        });
-                        break;
+                            var moveData = JsonConvert.DeserializeObject<MoveData>(msg.Data);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                GameManager.Instance.UpdateOtherPlayerPosition(moveData.x, moveData.y);
+                            });
+                            break;
+                        }
 
                     case MessageType.ItemSpawn:
-                        var spawn = JsonConvert.DeserializeObject<ItemSpawnDTO>(msg.Data);
-                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
                         {
-                            GameManager.Instance.SpawnItemFromServer(spawn.itemId, spawn.instanceId, spawn.x, spawn.y);
-                        });
-                        break;
+                            var spawn = JsonConvert.DeserializeObject<ItemSpawnDTO>(msg.Data);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                GameManager.Instance.SpawnItemFromServer(spawn.itemId, spawn.instanceId, spawn.x, spawn.y);
+                            });
+                            break;
+                        }
 
                     case MessageType.ItemRemove:
-                        string instanceId = msg.Data;
-                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
                         {
-                            GameManager.Instance.RemoveItem(instanceId);
-                        });
-                        break;
+                            string instanceId = msg.Data;
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                GameManager.Instance.RemoveItem(instanceId);
+                            });
+                            break;
+                        }
+
+                    case MessageType.ApplyBuff:
+                        {
+                            var buff = JsonConvert.DeserializeObject<BuffDTO>(msg.Data);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                GameManager.Instance.ApplyBuffToMe(buff.type, buff.value, buff.duration);
+                            });
+                            break;
+                        }
+
+                    case MessageType.ScoreUpdate:
+                        {
+                            var s = JsonConvert.DeserializeObject<ScoreDTO>(msg.Data);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                GameManager.Instance.UpdateMyScore(s.add, s.score);
+                            });
+                            break;
+                        }
 
                     case MessageType.Error:
-                        Debug.LogWarning("[서버 오류] " + msg.Data);
-                        break;
+                        {
+                            Debug.LogWarning("[서버 오류] " + msg.Data);
+                            break;
+                        }
                 }
             }
         }
@@ -279,29 +311,11 @@ public class UnityClient : MonoBehaviour
         public MessageType Type;
         public string Data;
     }
-
-    [Serializable]
-    public class MoveData
-    {
-        public float x;
-        public float y;
-    }
-
-    [Serializable]
-    public class StartGameInfo
-    {
-        public string roomName;
-        public bool swap;
-    }
-
-    [Serializable]
-    public class ItemSpawnDTO
-    {
-        public string instanceId;
-        public int itemId;
-        public float x;
-        public float y;
-    }
+    [Serializable] public class MoveData { public float x; public float y; }
+    [Serializable] public class StartGameInfo { public string roomName; public bool swap; }
+    [Serializable] public class ItemSpawnDTO { public string instanceId; public int itemId; public float x; public float y; }
+    [Serializable] public class BuffDTO { public string type; public float value; public float duration; }
+    [Serializable] public class ScoreDTO { public int score; public int add; }
 
     public enum MessageType
     {
@@ -314,6 +328,8 @@ public class UnityClient : MonoBehaviour
         Move,
         ItemSpawn,
         ItemPickup,
-        ItemRemove
+        ItemRemove,
+        ApplyBuff,
+        ScoreUpdate
     }
 }

@@ -1,0 +1,3 @@
+"itemID,","itemName,","itemCategory,","effectType,","value1,","value2,","duration,",# 주석
+10000,Gold,Object,Score,1,0,0,보유 중일 때 영역으로 이동 시 아이템 회수 및 스코어 1점 상승
+11000,Boost,Buff,PlayerMoveSpeedUp,5,0,10,획득 시 10초간 플레이어 이동속도 5 상승

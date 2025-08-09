@@ -1,17 +1,23 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance;
 
+    [Header("Prefabs")]
     public GameObject player1Prefab;
     public GameObject player2Prefab;
     public GameObject areaPrefab;
     public GameObject area2Prefab;
 
-    public GameObject goldPrefab;
-    public GameObject speedBoostPrefab;
+    public GameObject goldPrefab;       
+    public GameObject speedBoostPrefab;  
+
+    [Header("Canvas UI")]
+    public Text bagCountText;  
+    public Text scoreText;   
 
     private GameObject myPlayer;
     private GameObject otherPlayer;
@@ -19,12 +25,22 @@ public class GameManager : MonoBehaviour
     private Transform areaPos;
     private Transform area2Pos;
 
-    private Dictionary<string, GameObject> spawnedItems = new Dictionary<string, GameObject>();
+    private Dictionary<string, GameObject> spawnedItems = new Dictionary<string, GameObject>();  
+    private Dictionary<string, int> instanceToItemId = new Dictionary<string, int>();             
+
+    private const int bagCapacity = 5;
+    private int bagCount = 0;
+    private int localScore = 0;
+
+    private Bounds myAreaBounds;     
+    private Bounds otherAreaBounds;   
+    private bool myAreaReady = false;
 
     void Awake()
     {
         Instance = this;
         PlayerStatLoader.LoadStats();
+        RefreshUI();
     }
 
     public void SpawnPlayers(int myIndex, bool swap)
@@ -48,7 +64,6 @@ public class GameManager : MonoBehaviour
             return areaTransform.position + new Vector3(offsetX, offsetY, 0);
         }
 
-        int otherIndex = 1 - myIndex;
         GameObject myPrefab = myIndex == 0 ? player1Prefab : player2Prefab;
         GameObject otherPrefab = myIndex == 0 ? player2Prefab : player1Prefab;
 
@@ -61,6 +76,7 @@ public class GameManager : MonoBehaviour
         otherPlayer = Instantiate(otherPrefab, otherSpawn, Quaternion.identity);
         otherPlayer.GetComponent<PlayerController>().isMine = false;
 
+        // 영역 Bounds 계산
         Bounds GetBounds(GameObject go)
         {
             var col = go.GetComponentInChildren<Collider2D>();
@@ -73,19 +89,21 @@ public class GameManager : MonoBehaviour
         Bounds areaA = GetBounds(areaObj);
         Bounds areaB = GetBounds(area2Obj);
 
-        Bounds myAreaBounds = (myIndex == 0) ? areaA : areaB;
-        Bounds otherAreaBounds = (myIndex == 0) ? areaB : areaA;
+        myAreaBounds = (myIndex == 0) ? areaA : areaB;
+        otherAreaBounds = (myIndex == 0) ? areaB : areaA;
+        myAreaReady = true;
 
+        // 상대 영역은 출입 금지
         myPlayer.GetComponent<PlayerController>().SetForbiddenBounds(otherAreaBounds);
         otherPlayer.GetComponent<PlayerController>().SetForbiddenBounds(myAreaBounds);
+
+        RefreshUI();
     }
 
     public void UpdateOtherPlayerPosition(float x, float y)
     {
         if (otherPlayer != null)
-        {
             otherPlayer.GetComponent<PlayerController>().SetPosition(new Vector3(x, y, 0));
-        }
     }
 
     public void SpawnItemFromServer(int itemId, string instanceId, float x, float y)
@@ -95,7 +113,7 @@ public class GameManager : MonoBehaviour
         GameObject prefab = null;
         switch (itemId)
         {
-            case 10000: prefab = goldPrefab; break;
+            case 10000: prefab = goldPrefab; break;     
             case 11000: prefab = speedBoostPrefab; break;
             default: Debug.LogWarning($"알 수 없는 아이템 ID: {itemId}"); return;
         }
@@ -106,6 +124,7 @@ public class GameManager : MonoBehaviour
         pick.Initialize(instanceId);
 
         spawnedItems[instanceId] = go;
+        instanceToItemId[instanceId] = itemId;
     }
 
     public void RemoveItem(string instanceId)
@@ -115,5 +134,62 @@ public class GameManager : MonoBehaviour
             Destroy(go);
             spawnedItems.Remove(instanceId);
         }
+        instanceToItemId.Remove(instanceId);
+    }
+
+    public bool TryPickupLocally(string instanceId)
+    {
+        if (!instanceToItemId.TryGetValue(instanceId, out int itemId))
+            return false;
+
+        if (itemId == 10000)
+        {
+            if (bagCount >= bagCapacity)
+            {
+                Debug.Log("[Bag] 가방이 가득 찼습니다.");
+                return false;
+            }
+            bagCount += 1;   
+            RefreshUI();
+            return true;
+        }
+        return true;
+    }
+
+    void Update()
+    {
+        if (!myAreaReady || myPlayer == null) return;
+
+        if (bagCount > 0 && Inside(myAreaBounds, myPlayer.transform.position))
+        {
+            localScore += bagCount;
+            bagCount = 0;
+            RefreshUI();
+        }
+    }
+
+    private bool Inside(Bounds b, Vector3 p)
+    {
+        const float EPS = 0.01f;
+        return (p.x > b.min.x + EPS && p.x < b.max.x - EPS &&
+                p.y > b.min.y + EPS && p.y < b.max.y - EPS);
+    }
+
+    private void RefreshUI()
+    {
+        if (bagCountText != null) bagCountText.text = $"{bagCount}/{bagCapacity}";
+        if (scoreText != null) scoreText.text = $"{localScore}";
+    }
+
+    public void UpdateMyScore(int add, int total)
+    {
+        Debug.Log($"[ServerScore] +{add} → 총점 {total}");
+    }
+    public void ApplyBuffToMe(string type, float value, float duration)
+    {
+        if (myPlayer == null) return;
+        var pc = myPlayer.GetComponent<PlayerController>();
+        if (pc == null) return;
+        if (type == "PlayerMoveSpeedUp") pc.ApplySpeedBuff(value, duration);
     }
 }

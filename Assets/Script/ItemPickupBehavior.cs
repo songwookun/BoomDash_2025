@@ -15,10 +15,9 @@ public class ItemPickupBehavior : MonoBehaviour
             col = gameObject.AddComponent<CircleCollider2D>();
             ((CircleCollider2D)col).isTrigger = true;
         }
-        sr = GetComponent<SpriteRenderer>();
-        if (sr == null) sr = gameObject.AddComponent<SpriteRenderer>();
+        sr = GetComponent<SpriteRenderer>() ?? gameObject.AddComponent<SpriteRenderer>();
         col.enabled = true;
-        if (sr != null) sr.enabled = true;
+        if (sr) sr.enabled = true;
     }
 
     private void OnTriggerEnter2D(Collider2D other)
@@ -26,8 +25,12 @@ public class ItemPickupBehavior : MonoBehaviour
         var pc = other.GetComponent<PlayerController>();
         if (pc != null && pc.isMine)
         {
-            if (col != null) col.enabled = false;
-            if (sr != null) sr.enabled = false;
+            if (!GameManager.Instance.TryPickupLocally(instanceId))
+                return;
+
+            if (col) col.enabled = false;
+            if (sr) sr.enabled = false;
+
             UnityClient.Instance.SendItemPickup(instanceId);
         }
     }

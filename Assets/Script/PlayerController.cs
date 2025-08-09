@@ -1,16 +1,25 @@
 using UnityEngine;
-using Newtonsoft.Json;
+using System.Collections;
 
 public class PlayerController : MonoBehaviour
 {
     public bool isMine = false;
-    public int playerId = 0;
-    private float speed;
-    private float minX, maxX, minY, maxY;
+    [SerializeField] private float baseSpeed = 5f;
+
+    private float currentSpeed;
+    private float minX = -9f, maxX = 9f, minY = -5f, maxY = 5f;
 
     private Bounds forbidden;
     private bool hasForbidden = false;
+
+    private Coroutine speedBuffCo;
+
     private const float EPS = 0.01f;
+
+    void Awake()
+    {
+        currentSpeed = baseSpeed;
+    }
 
     public void SetForbiddenBounds(Bounds b)
     {
@@ -18,73 +27,50 @@ public class PlayerController : MonoBehaviour
         hasForbidden = true;
     }
 
-    private bool Inside(Bounds b, Vector3 p)
+    public void SetPosition(Vector3 p)
     {
-        return (p.x > b.min.x && p.x < b.max.x && p.y > b.min.y && p.y < b.max.y);
-    }
-    private Vector3 PushOutOf(Bounds b, Vector3 p)
-    {
-        float dl = Mathf.Abs(p.x - b.min.x);
-        float dr = Mathf.Abs(b.max.x - p.x);
-        float db = Mathf.Abs(p.y - b.min.y);
-        float dt = Mathf.Abs(b.max.y - p.y);
-
-        float m = Mathf.Min(dl, Mathf.Min(dr, Mathf.Min(db, dt)));
-
-        if (m == dl) p.x = b.min.x - EPS;
-        else if (m == dr) p.x = b.max.x + EPS;
-        else if (m == db) p.y = b.min.y - EPS;
-        else p.y = b.max.y + EPS;
-
-        return p;
+        transform.position = p;
     }
 
-    void Start()
+    public void ApplySpeedBuff(float add, float duration)
     {
-        speed = PlayerStatLoader.GetMoveSpeed(playerId);
-        Debug.Log($"[PlayerController] ID {playerId} 이동속도: {speed}");
+        if (speedBuffCo != null) StopCoroutine(speedBuffCo);
+        speedBuffCo = StartCoroutine(SpeedBuffRoutine(add, duration));
+    }
 
-        Camera cam = Camera.main;
-        float vertExtent = cam.orthographicSize;
-        float horzExtent = vertExtent * cam.aspect;
-        Vector3 camPos = cam.transform.position;
-
-        minX = camPos.x - horzExtent;
-        maxX = camPos.x + horzExtent;
-        minY = camPos.y - vertExtent;
-        maxY = camPos.y + vertExtent;
+    private IEnumerator SpeedBuffRoutine(float add, float duration)
+    {
+        currentSpeed = baseSpeed + add;
+        yield return new WaitForSeconds(duration);
+        currentSpeed = baseSpeed;
+        speedBuffCo = null;
     }
 
     void Update()
     {
         if (!isMine) return;
 
-        float h = Input.GetAxis("Horizontal");
-        float v = Input.GetAxis("Vertical");
-        Vector3 dir = new Vector3(h, v, 0);
+        float h = Input.GetAxisRaw("Horizontal");
+        float v = Input.GetAxisRaw("Vertical");
+        Vector3 dir = new Vector3(h, v, 0f).normalized;
 
-        if (dir.magnitude > 0.01f)
+        Vector3 next = transform.position + dir * currentSpeed * Time.deltaTime;
+
+        if (hasForbidden && Inside(forbidden, next))
         {
-            transform.position += dir * speed * Time.deltaTime;
-
-            Vector3 next = transform.position;
-            next.x = Mathf.Clamp(next.x, minX, maxX);
-            next.y = Mathf.Clamp(next.y, minY, maxY);
-
-            if (hasForbidden && Inside(forbidden, next))
-                next = PushOutOf(forbidden, next);
-
-            transform.position = next;
-
-            UnityClient.Instance.SendMove(transform.position.x, transform.position.y);
+            next = transform.position; 
         }
+
+        next.x = Mathf.Clamp(next.x, minX, maxX);
+        next.y = Mathf.Clamp(next.y, minY, maxY);
+
+        transform.position = next;
+        UnityClient.Instance?.SendMove(transform.position.x, transform.position.y);
     }
 
-    public void SetPosition(Vector3 pos)
+    private bool Inside(Bounds b, Vector3 p)
     {
-        if (hasForbidden && Inside(forbidden, pos))
-            pos = PushOutOf(forbidden, pos);
-
-        transform.position = pos;
+        return (p.x > b.min.x + EPS && p.x < b.max.x - EPS &&
+                p.y > b.min.y + EPS && p.y < b.max.y - EPS);
     }
 }
