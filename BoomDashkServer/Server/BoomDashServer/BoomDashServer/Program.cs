@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 
@@ -22,7 +23,10 @@ public enum MessageType
     RoomList,
     Error,
     MyOrder,
-    Move
+    Move,
+    ItemSpawn,
+    ItemPickup,
+    ItemRemove
 }
 
 public class GameMessage
@@ -38,12 +42,23 @@ public class Room
     public string Password { get; set; } = string.Empty;
     public int MaxPlayers { get; set; }
     public List<MatchServer.ClientState> Players { get; set; } = new();
+    public CancellationTokenSource? DropCts { get; set; }
+    public HashSet<string> ActiveItemIds { get; set; } = new();
 }
 
 public class JoinRoomRequest
 {
     public string roomName { get; set; }
     public string password { get; set; }
+}
+
+public class ItemDropEntry
+{
+    public int itemID;
+    public string itemName = "";
+    public int dropQuantityMin;
+    public int dropQuantityMax;
+    public int dropTime;
 }
 
 public static class MatchServer
@@ -53,8 +68,12 @@ public static class MatchServer
     private static Dictionary<string, Room> rooms = new();
     private static int playerCount = 0;
 
+    private static List<ItemDropEntry> dropTable = new();
+    private const float minX = -8f, maxX = 8f, minY = -4f, maxY = 4f;
+
     public static void Start()
     {
+        LoadDropTable();
         listener = new TcpListener(IPAddress.Any, port);
         listener.Start();
         Console.WriteLine($"[서버] 시작됨 - 포트 {port}");
@@ -63,6 +82,53 @@ public static class MatchServer
         {
             TcpClient client = listener.AcceptTcpClient();
             Task.Run(() => HandleClient(new ClientState(client)));
+        }
+    }
+
+    private static void LoadDropTable()
+    {
+        try
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "ItemDrop.csv");
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"[경고] ItemDrop.csv 없음: {path}");
+                return;
+            }
+
+            var lines = File.ReadAllLines(path);
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var raw = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                if (raw.StartsWith("#")) continue;
+
+                var cols = raw.Split(',');
+                if (cols.Length < 5) continue;
+
+                try
+                {
+                    var e = new ItemDropEntry
+                    {
+                        itemID = int.Parse(cols[0]),
+                        itemName = cols[1],
+                        dropQuantityMin = int.Parse(cols[2]),
+                        dropQuantityMax = int.Parse(cols[3]),
+                        dropTime = int.Parse(cols[4])
+                    };
+                    dropTable.Add(e);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[드랍테이블] 잘못된 라인 무시: {raw} ({ex.Message})");
+                }
+            }
+
+            Console.WriteLine($"[드랍테이블] {dropTable.Count}개 로드");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[드랍테이블 로드 오류] {ex.Message}");
         }
     }
 
@@ -100,6 +166,9 @@ public static class MatchServer
                     case MessageType.Move:
                         RelayMovement(client, msg.Data);
                         break;
+                    case MessageType.ItemPickup:
+                        HandleItemPickup(client, msg.Data);
+                        break;
                 }
             }
         }
@@ -125,8 +194,15 @@ public static class MatchServer
             {
                 room.Players.Remove(client);
                 Console.WriteLine($"[방 퇴장] {client.nickname} → {room.Name}");
+
                 if (room.Players.Count == 0)
+                {
                     roomsToRemove.Add(room.Name);
+                    room.DropCts?.Cancel();
+                    room.DropCts?.Dispose();
+                    room.DropCts = null;
+                    room.ActiveItemIds.Clear();
+                }
             }
         }
 
@@ -194,6 +270,8 @@ public static class MatchServer
                 string json = JsonConvert.SerializeObject(gameStartPayload);
                 p.Send(MessageType.StartGame, json);
             }
+
+            StartItemSpawners(room);
         }
     }
 
@@ -267,6 +345,91 @@ public static class MatchServer
                     }
                 }
             }
+        }
+    }
+
+    static void StartItemSpawners(Room room)
+    {
+        if (dropTable.Count == 0)
+        {
+            Console.WriteLine("[경고] 드랍테이블 비어있음. 스폰 시작 안함.");
+            return;
+        }
+
+        room.DropCts?.Cancel();
+        room.DropCts?.Dispose();
+
+        room.DropCts = new CancellationTokenSource();
+        var token = room.DropCts.Token;
+
+        foreach (var entry in dropTable)
+        {
+            Task.Run(async () =>
+            {
+                var rng = new Random(Guid.NewGuid().GetHashCode());
+                while (!token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(entry.dropTime), token);
+                    }
+                    catch
+                    {
+                        break;
+                    }
+
+                    int qty = rng.Next(entry.dropQuantityMin, entry.dropQuantityMax + 1);
+                    if (qty <= 0) continue;
+
+                    for (int i = 0; i < qty; i++)
+                    {
+                        string instanceId = Guid.NewGuid().ToString();
+
+                        float x = (float)(rng.NextDouble() * (maxX - minX) + minX);
+                        float y = (float)(rng.NextDouble() * (maxY - minY) + minY);
+
+                        room.ActiveItemIds.Add(instanceId);
+
+                        var payload = new
+                        {
+                            instanceId = instanceId,
+                            itemId = entry.itemID,
+                            x = x,
+                            y = y
+                        };
+                        string json = JsonConvert.SerializeObject(payload);
+
+                        foreach (var p in room.Players)
+                            p.Send(MessageType.ItemSpawn, json);
+
+                        Console.WriteLine($"[ItemSpawn] room={room.Name} id={entry.itemID} inst={instanceId} ({x:F2},{y:F2})");
+                    }
+                }
+            }, token);
+        }
+    }
+
+    static void HandleItemPickup(ClientState sender, string data)
+    {
+        string instanceId = data?.Trim() ?? "";
+        if (string.IsNullOrEmpty(instanceId)) return;
+
+        foreach (var room in rooms.Values)
+        {
+            if (!room.Players.Contains(sender)) continue;
+
+            if (room.ActiveItemIds.Remove(instanceId))
+            {
+                foreach (var p in room.Players)
+                    p.Send(MessageType.ItemRemove, instanceId);
+
+                Console.WriteLine($"[ItemPickup] room={room.Name} inst={instanceId} by={sender.nickname}");
+            }
+            else
+            {
+                Console.WriteLine($"[ItemPickup 무시] {sender.nickname} - 이미 주워간 아이템({instanceId})");
+            }
+            return;
         }
     }
 

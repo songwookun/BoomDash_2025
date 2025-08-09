@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class GameManager : MonoBehaviour
@@ -9,11 +10,16 @@ public class GameManager : MonoBehaviour
     public GameObject areaPrefab;
     public GameObject area2Prefab;
 
+    public GameObject goldPrefab;
+    public GameObject speedBoostPrefab;
+
     private GameObject myPlayer;
     private GameObject otherPlayer;
 
     private Transform areaPos;
     private Transform area2Pos;
+
+    private Dictionary<string, GameObject> spawnedItems = new Dictionary<string, GameObject>();
 
     void Awake()
     {
@@ -23,60 +29,91 @@ public class GameManager : MonoBehaviour
 
     public void SpawnPlayers(int myIndex, bool swap)
     {
-        var posLB = new Vector3(-8, -4, 0);
-        var posRT = new Vector3(8, 4, 0);
+        Debug.Log($"[GameManager] 플레이어 스폰 - 내 인덱스: {myIndex}, swap: {swap}");
 
-        var area1 = Instantiate(areaPrefab, posRT, Quaternion.identity); 
-        var area2 = Instantiate(area2Prefab, posLB, Quaternion.identity); 
+        Vector3 areaSpawnPos_LB = new Vector3(-8, -4, 0);
+        Vector3 areaSpawnPos_RT = new Vector3(8, 4, 0);
 
-        var rtBounds = area1.GetComponentInChildren<Collider2D>().bounds;
-        var lbBounds = area2.GetComponentInChildren<Collider2D>().bounds;
+        GameObject areaObj = Instantiate(areaPrefab, swap ? areaSpawnPos_LB : areaSpawnPos_RT, Quaternion.identity);
+        GameObject area2Obj = Instantiate(area2Prefab, swap ? areaSpawnPos_RT : areaSpawnPos_LB, Quaternion.identity);
 
-        Transform myArea, otherArea;
-        if (myIndex == 0)
-        { 
-            myArea = swap ? area1.transform : area2.transform;
-            otherArea = swap ? area2.transform : area1.transform;
-        }
-        else
-        {    
-            myArea = swap ? area2.transform : area1.transform;
-            otherArea = swap ? area1.transform : area2.transform;
-        }
+        areaPos = areaObj.transform;
+        area2Pos = area2Obj.transform;
 
-        Bounds areaOf(Transform t) => (t == area1.transform) ? rtBounds : lbBounds;
-
-        Vector3 RandInside(Bounds b)
+        Vector3 GetInnerSpawn(Transform areaTransform)
         {
-            float x = Random.Range(b.min.x + 0.2f, b.max.x - 0.2f);
-            float y = Random.Range(b.min.y + 0.2f, b.max.y - 0.2f);
-            return new Vector3(x, y, 0);
+            float radius = 0.3f;
+            float offsetX = Random.Range(-radius, radius);
+            float offsetY = Random.Range(-radius, radius);
+            return areaTransform.position + new Vector3(offsetX, offsetY, 0);
         }
 
-        var myPrefab = myIndex == 0 ? player1Prefab : player2Prefab;
-        var otherPrefab = myIndex == 0 ? player2Prefab : player1Prefab;
+        int otherIndex = 1 - myIndex;
+        GameObject myPrefab = myIndex == 0 ? player1Prefab : player2Prefab;
+        GameObject otherPrefab = myIndex == 0 ? player2Prefab : player1Prefab;
 
-        var myPos = RandInside(areaOf(myArea));
-        var otherPos = RandInside(areaOf(otherArea));
+        Vector3 mySpawn = myIndex == 0 ? GetInnerSpawn(areaPos) : GetInnerSpawn(area2Pos);
+        Vector3 otherSpawn = myIndex == 0 ? GetInnerSpawn(area2Pos) : GetInnerSpawn(areaPos);
 
-        myPlayer = Instantiate(myPrefab, myPos, Quaternion.identity);
-        var myPC = myPlayer.GetComponent<PlayerController>();
-        myPC.isMine = true;
-        myPC.SetForbiddenBounds(areaOf(otherArea)); 
+        myPlayer = Instantiate(myPrefab, mySpawn, Quaternion.identity);
+        myPlayer.GetComponent<PlayerController>().isMine = true;
 
-        otherPlayer = Instantiate(otherPrefab, otherPos, Quaternion.identity);
-        var oPC = otherPlayer.GetComponent<PlayerController>();
-        oPC.isMine = false;
-        oPC.SetForbiddenBounds(areaOf(myArea));     
+        otherPlayer = Instantiate(otherPrefab, otherSpawn, Quaternion.identity);
+        otherPlayer.GetComponent<PlayerController>().isMine = false;
+
+        Bounds GetBounds(GameObject go)
+        {
+            var col = go.GetComponentInChildren<Collider2D>();
+            if (col != null) return col.bounds;
+            var sr = go.GetComponentInChildren<SpriteRenderer>();
+            if (sr != null) return sr.bounds;
+            return new Bounds(go.transform.position, new Vector3(2f, 2f, 0f));
+        }
+
+        Bounds areaA = GetBounds(areaObj);
+        Bounds areaB = GetBounds(area2Obj);
+
+        Bounds myAreaBounds = (myIndex == 0) ? areaA : areaB;
+        Bounds otherAreaBounds = (myIndex == 0) ? areaB : areaA;
+
+        myPlayer.GetComponent<PlayerController>().SetForbiddenBounds(otherAreaBounds);
+        otherPlayer.GetComponent<PlayerController>().SetForbiddenBounds(myAreaBounds);
     }
-
-
 
     public void UpdateOtherPlayerPosition(float x, float y)
     {
         if (otherPlayer != null)
         {
             otherPlayer.GetComponent<PlayerController>().SetPosition(new Vector3(x, y, 0));
+        }
+    }
+
+    public void SpawnItemFromServer(int itemId, string instanceId, float x, float y)
+    {
+        if (spawnedItems.ContainsKey(instanceId)) return;
+
+        GameObject prefab = null;
+        switch (itemId)
+        {
+            case 10000: prefab = goldPrefab; break;
+            case 11000: prefab = speedBoostPrefab; break;
+            default: Debug.LogWarning($"알 수 없는 아이템 ID: {itemId}"); return;
+        }
+
+        var go = Instantiate(prefab, new Vector3(x, y, 0), Quaternion.identity);
+        var pick = go.GetComponent<ItemPickupBehavior>();
+        if (pick == null) pick = go.AddComponent<ItemPickupBehavior>();
+        pick.Initialize(instanceId);
+
+        spawnedItems[instanceId] = go;
+    }
+
+    public void RemoveItem(string instanceId)
+    {
+        if (spawnedItems.TryGetValue(instanceId, out var go))
+        {
+            Destroy(go);
+            spawnedItems.Remove(instanceId);
         }
     }
 }

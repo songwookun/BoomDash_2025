@@ -12,12 +12,10 @@ public class UnityClient : MonoBehaviour
 {
     public static UnityClient Instance;
 
-    [Header("패널들")]
     public GameObject createRoomPanel;
     public GameObject joinRoomPanel;
     public GameObject mainLobbyPanel;
 
-    [Header("Create Room UI")]
     public InputField roomNameInput;
     public Dropdown isPrivateDropdown;
     public InputField passwordInput;
@@ -25,13 +23,11 @@ public class UnityClient : MonoBehaviour
     public Button createButton;
     public Button cancelCreateButton;
 
-    [Header("Join Room UI")]
     public InputField joinRoomNameInput;
     public InputField joinPasswordInput;
     public Button joinButton;
     public Button cancelJoinButton;
 
-    [Header("메인 로비 UI")]
     public Button openCreatePopupButton;
     public Button openJoinPopupButton;
 
@@ -41,7 +37,7 @@ public class UnityClient : MonoBehaviour
     private Thread receiveThread;
     private bool isConnected = false;
 
-    private bool cachedSwap = false; 
+    private bool cachedSwap = false;
 
     private void Awake()
     {
@@ -132,6 +128,22 @@ public class UnityClient : MonoBehaviour
                         });
                         break;
 
+                    case MessageType.ItemSpawn:
+                        var spawn = JsonConvert.DeserializeObject<ItemSpawnDTO>(msg.Data);
+                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                        {
+                            GameManager.Instance.SpawnItemFromServer(spawn.itemId, spawn.instanceId, spawn.x, spawn.y);
+                        });
+                        break;
+
+                    case MessageType.ItemRemove:
+                        string instanceId = msg.Data;
+                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                        {
+                            GameManager.Instance.RemoveItem(instanceId);
+                        });
+                        break;
+
                     case MessageType.Error:
                         Debug.LogWarning("[서버 오류] " + msg.Data);
                         break;
@@ -176,6 +188,15 @@ public class UnityClient : MonoBehaviour
         {
             Type = MessageType.Move,
             Data = JsonConvert.SerializeObject(move)
+        });
+    }
+
+    public void SendItemPickup(string instanceId)
+    {
+        SendToServer(new GameMessage
+        {
+            Type = MessageType.ItemPickup,
+            Data = instanceId
         });
     }
 
@@ -230,13 +251,12 @@ public class UnityClient : MonoBehaviour
 
     private void OnApplicationQuit()
     {
-        receiveThread?.Abort();
-        writer?.Close();
-        reader?.Close();
-        client?.Close();
+        try { receiveThread?.Abort(); } catch { }
+        try { writer?.Close(); } catch { }
+        try { reader?.Close(); } catch { }
+        try { client?.Close(); } catch { }
     }
 
-    // 메시지 및 데이터 구조 정의
     [Serializable]
     public class RoomData
     {
@@ -274,6 +294,15 @@ public class UnityClient : MonoBehaviour
         public bool swap;
     }
 
+    [Serializable]
+    public class ItemSpawnDTO
+    {
+        public string instanceId;
+        public int itemId;
+        public float x;
+        public float y;
+    }
+
     public enum MessageType
     {
         CreateRoom,
@@ -282,6 +311,9 @@ public class UnityClient : MonoBehaviour
         RoomList,
         Error,
         MyOrder,
-        Move
+        Move,
+        ItemSpawn,
+        ItemPickup,
+        ItemRemove
     }
 }

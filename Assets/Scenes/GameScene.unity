@@ -875,6 +875,8 @@ MonoBehaviour:
   player2Prefab: {fileID: 954288251555646401, guid: 474abfb86feb8774098ea2d1b913a2b6, type: 3}
   areaPrefab: {fileID: 4208869367485248744, guid: dc4d61f78eda61a44b7d67e18cb6d45f, type: 3}
   area2Prefab: {fileID: 719866810184792790, guid: e3c3603dfbbe0f34fb8640e1fc4c1caa, type: 3}
+  goldPrefab: {fileID: 7279901538500427090, guid: 9016594aaa008284db9bfd65aae4c196, type: 3}
+  speedBoostPrefab: {fileID: 6082465265859081685, guid: 22b880e80adc6664ab447a7b4dd395ce, type: 3}
 --- !u!4 &1570262069
 Transform:
   m_ObjectHideFlags: 0
