@@ -29,8 +29,8 @@ public class GameManager : MonoBehaviour
     private Dictionary<string, int> instanceToItemId = new Dictionary<string, int>();
 
     private const int bagCapacity = 5;
-    private int bagCount = 0;      
-    private int localScore = 0;  
+    private int bagCount = 0;
+    private int localScore = 0;
 
     private Bounds myAreaBounds;
     private Bounds otherAreaBounds;
@@ -53,8 +53,8 @@ public class GameManager : MonoBehaviour
         Vector3 areaSpawnPos_LB = new Vector3(-8, -4, 0);
         Vector3 areaSpawnPos_RT = new Vector3(8, 4, 0);
 
-        GameObject areaObj = Instantiate(areaPrefab, swap ? areaSpawnPos_LB : areaSpawnPos_RT, Quaternion.identity);
-        GameObject area2Obj = Instantiate(area2Prefab, swap ? areaSpawnPos_RT : areaSpawnPos_LB, Quaternion.identity);
+        GameObject areaObj = Instantiate(areaPrefab, areaSpawnPos_LB, Quaternion.identity);
+        GameObject area2Obj = Instantiate(area2Prefab, areaSpawnPos_RT, Quaternion.identity);
 
         areaPos = areaObj.transform;
         area2Pos = area2Obj.transform;
@@ -70,8 +70,10 @@ public class GameManager : MonoBehaviour
         GameObject myPrefab = myIndex == 0 ? player1Prefab : player2Prefab;
         GameObject otherPrefab = myIndex == 0 ? player2Prefab : player1Prefab;
 
-        Vector3 mySpawn = myIndex == 0 ? GetInnerSpawn(areaPos) : GetInnerSpawn(area2Pos);
-        Vector3 otherSpawn = myIndex == 0 ? GetInnerSpawn(area2Pos) : GetInnerSpawn(areaPos);
+        bool mineInAreaA = ((myIndex == 0) ^ swap);
+
+        Vector3 mySpawn = mineInAreaA ? GetInnerSpawn(areaPos) : GetInnerSpawn(area2Pos);
+        Vector3 otherSpawn = mineInAreaA ? GetInnerSpawn(area2Pos) : GetInnerSpawn(areaPos);
 
         myPlayer = Instantiate(myPrefab, mySpawn, Quaternion.identity);
         myPlayer.GetComponent<PlayerController>().isMine = true;
@@ -91,8 +93,8 @@ public class GameManager : MonoBehaviour
         Bounds areaA = GetBounds(areaObj);
         Bounds areaB = GetBounds(area2Obj);
 
-        myAreaBounds = (myIndex == 0) ? areaA : areaB;
-        otherAreaBounds = (myIndex == 0) ? areaB : areaA;
+        myAreaBounds = mineInAreaA ? areaA : areaB;
+        otherAreaBounds = mineInAreaA ? areaB : areaA;
         myAreaReady = true;
 
         myPlayer.GetComponent<PlayerController>().SetForbiddenBounds(otherAreaBounds);
@@ -100,6 +102,7 @@ public class GameManager : MonoBehaviour
 
         RefreshUI();
     }
+
 
     public void UpdateOtherPlayerPosition(float x, float y)
     {
@@ -164,7 +167,7 @@ public class GameManager : MonoBehaviour
         {
             if (Time.time - lastDepositSent > depositCooldown)
             {
-                UnityClient.Instance.SendDepositBag(); 
+                UnityClient.Instance.SendDepositBag();
                 lastDepositSent = Time.time;
             }
         }
