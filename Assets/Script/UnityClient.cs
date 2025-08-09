@@ -174,6 +174,16 @@ public class UnityClient : MonoBehaviour
                             break;
                         }
 
+                    case MessageType.BagUpdate:
+                        {
+                            var b = JsonConvert.DeserializeObject<BagDTO>(msg.Data);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                GameManager.Instance.OnBagUpdate(b.bag);
+                            });
+                            break;
+                        }
+
                     case MessageType.Error:
                         {
                             Debug.LogWarning("[서버 오류] " + msg.Data);
@@ -229,6 +239,14 @@ public class UnityClient : MonoBehaviour
         {
             Type = MessageType.ItemPickup,
             Data = instanceId
+        });
+    }
+    public void SendDepositBag()
+    {
+        SendToServer(new GameMessage
+        {
+            Type = MessageType.DepositBag,
+            Data = "" 
         });
     }
 
@@ -311,11 +329,13 @@ public class UnityClient : MonoBehaviour
         public MessageType Type;
         public string Data;
     }
+
     [Serializable] public class MoveData { public float x; public float y; }
     [Serializable] public class StartGameInfo { public string roomName; public bool swap; }
     [Serializable] public class ItemSpawnDTO { public string instanceId; public int itemId; public float x; public float y; }
     [Serializable] public class BuffDTO { public string type; public float value; public float duration; }
     [Serializable] public class ScoreDTO { public int score; public int add; }
+    [Serializable] public class BagDTO { public int bag; } 
 
     public enum MessageType
     {
@@ -330,6 +350,8 @@ public class UnityClient : MonoBehaviour
         ItemPickup,
         ItemRemove,
         ApplyBuff,
-        ScoreUpdate
+        ScoreUpdate,
+        BagUpdate,   
+        DepositBag   
     }
 }

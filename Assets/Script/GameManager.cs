@@ -12,12 +12,12 @@ public class GameManager : MonoBehaviour
     public GameObject areaPrefab;
     public GameObject area2Prefab;
 
-    public GameObject goldPrefab;       
-    public GameObject speedBoostPrefab;  
+    public GameObject goldPrefab;
+    public GameObject speedBoostPrefab;
 
     [Header("Canvas UI")]
-    public Text bagCountText;  
-    public Text scoreText;   
+    public Text bagCountText;
+    public Text scoreText;
 
     private GameObject myPlayer;
     private GameObject otherPlayer;
@@ -25,16 +25,19 @@ public class GameManager : MonoBehaviour
     private Transform areaPos;
     private Transform area2Pos;
 
-    private Dictionary<string, GameObject> spawnedItems = new Dictionary<string, GameObject>();  
-    private Dictionary<string, int> instanceToItemId = new Dictionary<string, int>();             
+    private Dictionary<string, GameObject> spawnedItems = new Dictionary<string, GameObject>();
+    private Dictionary<string, int> instanceToItemId = new Dictionary<string, int>();
 
     private const int bagCapacity = 5;
-    private int bagCount = 0;
-    private int localScore = 0;
+    private int bagCount = 0;      
+    private int localScore = 0;  
 
-    private Bounds myAreaBounds;     
-    private Bounds otherAreaBounds;   
+    private Bounds myAreaBounds;
+    private Bounds otherAreaBounds;
     private bool myAreaReady = false;
+
+    private float depositCooldown = 0.2f;
+    private float lastDepositSent = -1f;
 
     void Awake()
     {
@@ -76,7 +79,6 @@ public class GameManager : MonoBehaviour
         otherPlayer = Instantiate(otherPrefab, otherSpawn, Quaternion.identity);
         otherPlayer.GetComponent<PlayerController>().isMine = false;
 
-        // 영역 Bounds 계산
         Bounds GetBounds(GameObject go)
         {
             var col = go.GetComponentInChildren<Collider2D>();
@@ -93,7 +95,6 @@ public class GameManager : MonoBehaviour
         otherAreaBounds = (myIndex == 0) ? areaB : areaA;
         myAreaReady = true;
 
-        // 상대 영역은 출입 금지
         myPlayer.GetComponent<PlayerController>().SetForbiddenBounds(otherAreaBounds);
         otherPlayer.GetComponent<PlayerController>().SetForbiddenBounds(myAreaBounds);
 
@@ -113,9 +114,11 @@ public class GameManager : MonoBehaviour
         GameObject prefab = null;
         switch (itemId)
         {
-            case 10000: prefab = goldPrefab; break;     
+            case 10000: prefab = goldPrefab; break;
             case 11000: prefab = speedBoostPrefab; break;
-            default: Debug.LogWarning($"알 수 없는 아이템 ID: {itemId}"); return;
+            default:
+                Debug.LogWarning($"알 수 없는 아이템 ID: {itemId}");
+                return;
         }
 
         var go = Instantiate(prefab, new Vector3(x, y, 0), Quaternion.identity);
@@ -136,7 +139,6 @@ public class GameManager : MonoBehaviour
         }
         instanceToItemId.Remove(instanceId);
     }
-
     public bool TryPickupLocally(string instanceId)
     {
         if (!instanceToItemId.TryGetValue(instanceId, out int itemId))
@@ -146,11 +148,9 @@ public class GameManager : MonoBehaviour
         {
             if (bagCount >= bagCapacity)
             {
-                Debug.Log("[Bag] 가방이 가득 찼습니다.");
+                Debug.Log("[Bag] 가방이 가득 찼습니다. (서버 기준 동기화)");
                 return false;
             }
-            bagCount += 1;   
-            RefreshUI();
             return true;
         }
         return true;
@@ -162,9 +162,11 @@ public class GameManager : MonoBehaviour
 
         if (bagCount > 0 && Inside(myAreaBounds, myPlayer.transform.position))
         {
-            localScore += bagCount;
-            bagCount = 0;
-            RefreshUI();
+            if (Time.time - lastDepositSent > depositCooldown)
+            {
+                UnityClient.Instance.SendDepositBag(); 
+                lastDepositSent = Time.time;
+            }
         }
     }
 
@@ -181,10 +183,19 @@ public class GameManager : MonoBehaviour
         if (scoreText != null) scoreText.text = $"{localScore}";
     }
 
+    public void OnBagUpdate(int bag)
+    {
+        bagCount = bag;
+        RefreshUI();
+    }
+
     public void UpdateMyScore(int add, int total)
     {
+        localScore = total;
         Debug.Log($"[ServerScore] +{add} → 총점 {total}");
+        RefreshUI();
     }
+
     public void ApplyBuffToMe(string type, float value, float duration)
     {
         if (myPlayer == null) return;
