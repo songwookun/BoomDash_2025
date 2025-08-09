@@ -23,46 +23,53 @@ public class GameManager : MonoBehaviour
 
     public void SpawnPlayers(int myIndex, bool swap)
     {
-        Debug.Log($"[GameManager] 플레이어 스폰 - 내 인덱스: {myIndex}, swap: {swap}");
+        var posLB = new Vector3(-8, -4, 0);
+        var posRT = new Vector3(8, 4, 0);
 
-        Vector3 posLB = new Vector3(-8, -4, 0);
-        Vector3 posRT = new Vector3(8, 4, 0);
+        var area1 = Instantiate(areaPrefab, posRT, Quaternion.identity); 
+        var area2 = Instantiate(area2Prefab, posLB, Quaternion.identity); 
 
-        GameObject area1 = Instantiate(areaPrefab, posRT, Quaternion.identity); 
-        GameObject area2 = Instantiate(area2Prefab, posLB, Quaternion.identity); 
-
-        Transform areaRT = area1.transform;
-        Transform areaLB = area2.transform;
+        var rtBounds = area1.GetComponentInChildren<Collider2D>().bounds;
+        var lbBounds = area2.GetComponentInChildren<Collider2D>().bounds;
 
         Transform myArea, otherArea;
-        if (myIndex == 0) 
-        {
-            myArea = swap ? areaRT : areaLB;
-            otherArea = swap ? areaLB : areaRT;
+        if (myIndex == 0)
+        { 
+            myArea = swap ? area1.transform : area2.transform;
+            otherArea = swap ? area2.transform : area1.transform;
         }
-        else 
-        {
-            myArea = swap ? areaLB : areaRT;
-            otherArea = swap ? areaRT : areaLB;
-        }
-
-        Vector3 GetInnerSpawn(Transform areaTransform)
-        {
-            float radius = 0.3f;
-            float offsetX = Random.Range(-radius, radius);
-            float offsetY = Random.Range(-radius, radius);
-            return areaTransform.position + new Vector3(offsetX, offsetY, 0);
+        else
+        {    
+            myArea = swap ? area2.transform : area1.transform;
+            otherArea = swap ? area1.transform : area2.transform;
         }
 
-        GameObject myPrefab = myIndex == 0 ? player1Prefab : player2Prefab;
-        GameObject otherPrefab = myIndex == 0 ? player2Prefab : player1Prefab;
+        Bounds areaOf(Transform t) => (t == area1.transform) ? rtBounds : lbBounds;
 
-        myPlayer = Instantiate(myPrefab, GetInnerSpawn(myArea), Quaternion.identity);
-        myPlayer.GetComponent<PlayerController>().isMine = true;
+        Vector3 RandInside(Bounds b)
+        {
+            float x = Random.Range(b.min.x + 0.2f, b.max.x - 0.2f);
+            float y = Random.Range(b.min.y + 0.2f, b.max.y - 0.2f);
+            return new Vector3(x, y, 0);
+        }
 
-        otherPlayer = Instantiate(otherPrefab, GetInnerSpawn(otherArea), Quaternion.identity);
-        otherPlayer.GetComponent<PlayerController>().isMine = false;
+        var myPrefab = myIndex == 0 ? player1Prefab : player2Prefab;
+        var otherPrefab = myIndex == 0 ? player2Prefab : player1Prefab;
+
+        var myPos = RandInside(areaOf(myArea));
+        var otherPos = RandInside(areaOf(otherArea));
+
+        myPlayer = Instantiate(myPrefab, myPos, Quaternion.identity);
+        var myPC = myPlayer.GetComponent<PlayerController>();
+        myPC.isMine = true;
+        myPC.SetForbiddenBounds(areaOf(otherArea)); 
+
+        otherPlayer = Instantiate(otherPrefab, otherPos, Quaternion.identity);
+        var oPC = otherPlayer.GetComponent<PlayerController>();
+        oPC.isMine = false;
+        oPC.SetForbiddenBounds(areaOf(myArea));     
     }
+
 
 
     public void UpdateOtherPlayerPosition(float x, float y)
