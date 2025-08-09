@@ -27,11 +27,8 @@ public class ItemPickupBehavior : MonoBehaviour
         {
             if (!GameManager.Instance.TryPickupLocally(instanceId))
                 return;
-
-            if (col) col.enabled = false;
-            if (sr) sr.enabled = false;
-
             UnityClient.Instance.SendItemPickup(instanceId);
         }
     }
+
 }
