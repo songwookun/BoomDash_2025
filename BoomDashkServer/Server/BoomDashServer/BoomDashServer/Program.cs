@@ -14,6 +14,7 @@ class Program
         MatchServer.Start();
     }
 }
+
 public enum MessageType
 {
     CreateRoom,
@@ -28,9 +29,10 @@ public enum MessageType
     ItemRemove,
     ApplyBuff,
     ScoreUpdate,
-    BagUpdate,    
+    BagUpdate,
     DepositBag
 }
+
 public class GameMessage
 {
     public MessageType Type { get; set; }
@@ -43,6 +45,7 @@ public enum EffectType
     Score = 1,
     PlayerMoveSpeedUp = 2
 }
+
 public class ItemDef
 {
     public int itemID;
@@ -53,6 +56,7 @@ public class ItemDef
     public float value2 = 0f;
     public float duration = 0f;
 }
+
 public class Room
 {
     public string Name { get; set; } = string.Empty;
@@ -106,6 +110,7 @@ public static class MatchServer
             Task.Run(() => HandleClient(new ClientState(client)));
         }
     }
+
     private static void LoadItemDefs()
     {
         try
@@ -116,6 +121,7 @@ public static class MatchServer
                 Console.WriteLine($"[경고] Item.csv 없음: {path}");
                 return;
             }
+
             var lines = File.ReadAllLines(path);
             for (int i = 1; i < lines.Length; i++)
             {
@@ -152,6 +158,7 @@ public static class MatchServer
             Console.WriteLine($"[Item.csv 로드 오류] {ex.Message}");
         }
     }
+
     private static void LoadDropTable()
     {
         try
@@ -198,7 +205,8 @@ public static class MatchServer
             Console.WriteLine($"[드랍테이블 로드 오류] {ex.Message}");
         }
     }
-    static async Task HandleClient(ClientState client)
+
+    private static async Task HandleClient(ClientState client)
     {
         playerCount++;
         client.nickname = $"UnityPlayer{playerCount}";
@@ -250,55 +258,8 @@ public static class MatchServer
             CleanupClient(client);
         }
     }
-    static void HandleDepositBag(ClientState sender)
-    {
-        if (sender.bag <= 0) return;
 
-        int add = sender.bag;
-        sender.bag = 0;
-        sender.score += add;
-
-        sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
-
-        var payload = new { score = sender.score, add = add };
-        sender.Send(MessageType.ScoreUpdate, JsonConvert.SerializeObject(payload));
-
-        Console.WriteLine($"[Deposit] {sender.nickname} 입금 +{add} → score={sender.score}");
-    }
-    static void CleanupClient(ClientState client)
-    {
-        Console.WriteLine($"[정리] {client.nickname} 연결 해제 및 방에서 제거");
-        var roomsToRemove = new List<string>();
-
-        foreach (var kvp in rooms)
-        {
-            var room = kvp.Value;
-            if (room.Players.Contains(client))
-            {
-                room.Players.Remove(client);
-                Console.WriteLine($"[방 퇴장] {client.nickname} → {room.Name}");
-
-                if (room.Players.Count == 0)
-                {
-                    roomsToRemove.Add(room.Name);
-                    room.DropCts?.Cancel();
-                    room.DropCts?.Dispose();
-                    room.DropCts = null;
-                    room.ActiveItemIds.Clear();
-                    room.ItemMap.Clear();
-                }
-            }
-        }
-        foreach (var roomName in roomsToRemove)
-        {
-            rooms.Remove(roomName);
-            Console.WriteLine($"[방 삭제] {roomName} (빈 방)");
-        }
-        try { client.reader?.Close(); } catch { }
-        try { client.writer?.Close(); } catch { }
-        try { client.client?.Close(); } catch { }
-    }
-    static void HandleCreateRoom(ClientState client, string data)
+    private static void HandleCreateRoom(ClientState client, string data)
     {
         var room = JsonConvert.DeserializeObject<Room>(data);
         if (room == null || rooms.ContainsKey(room.Name))
@@ -311,7 +272,8 @@ public static class MatchServer
         Console.WriteLine($"[방 생성] {room.Name} (공개 여부: {(room.IsPrivate ? "비공개" : "공개")})");
         BroadcastRoomList();
     }
-    static void HandleJoinRoom(ClientState client, string data)
+
+    private static void HandleJoinRoom(ClientState client, string data)
     {
         var joinData = JsonConvert.DeserializeObject<JoinRoomRequest>(data);
         string roomName = joinData?.roomName ?? "";
@@ -350,7 +312,8 @@ public static class MatchServer
             StartItemSpawners(room);
         }
     }
-    static void HandleRoomList(ClientState client)
+
+    private static void HandleRoomList(ClientState client)
     {
         var summaries = new List<object>();
         foreach (var kvp in rooms)
@@ -366,7 +329,8 @@ public static class MatchServer
         string json = JsonConvert.SerializeObject(summaries);
         client.Send(MessageType.RoomList, json);
     }
-    static void BroadcastRoomList()
+
+    private static void BroadcastRoomList()
     {
         var clientsToRemove = new List<ClientState>();
         foreach (var room in rooms.Values)
@@ -377,12 +341,11 @@ public static class MatchServer
                 catch { clientsToRemove.Add(player); }
             }
         }
-        foreach (var client in clientsToRemove)
-        {
-            CleanupClient(client);
-        }
+        foreach (var c in clientsToRemove)
+            CleanupClient(c);
     }
-    static void HandleMyOrder(ClientState client, string roomName)
+
+    private static void HandleMyOrder(ClientState client, string roomName)
     {
         Console.WriteLine($"[MyOrder 요청] {client.nickname} → {roomName}");
         if (rooms.TryGetValue(roomName, out var room))
@@ -403,7 +366,8 @@ public static class MatchServer
             client.Send(MessageType.Error, "해당 방이 존재하지 않습니다.");
         }
     }
-    static void RelayMovement(ClientState sender, string data)
+
+    private static void RelayMovement(ClientState sender, string data)
     {
         foreach (var room in rooms.Values)
         {
@@ -412,14 +376,13 @@ public static class MatchServer
                 foreach (var player in room.Players)
                 {
                     if (player != sender)
-                    {
                         player.Send(MessageType.Move, data);
-                    }
                 }
             }
         }
     }
-    static void StartItemSpawners(Room room)
+
+    private static void StartItemSpawners(Room room)
     {
         if (dropTable.Count == 0)
         {
@@ -470,7 +433,8 @@ public static class MatchServer
             }, token);
         }
     }
-    static void HandleItemPickup(ClientState sender, string data)
+
+    private static void HandleItemPickup(ClientState sender, string data)
     {
         string instanceId = data?.Trim() ?? "";
         if (string.IsNullOrEmpty(instanceId)) return;
@@ -482,18 +446,15 @@ public static class MatchServer
             int itemId;
             bool picked = false;
 
-            lock (room) 
+            lock (room)
             {
                 if (!room.ItemMap.TryGetValue(instanceId, out itemId))
-                    return; 
+                    return;
 
-                if (itemId == 10000)
+                if (itemId == 10000 && sender.bag >= 5)
                 {
-                    if (sender.bag >= 5)
-                    {
-                        sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
-                        return;
-                    }
+                    sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
+                    return;
                 }
 
                 room.ActiveItemIds.Remove(instanceId);
@@ -518,38 +479,121 @@ public static class MatchServer
             return;
         }
     }
-    static void ApplyItemEffect(Room room, ClientState target, int itemId)
+    private static Room? FindRoomOf(ClientState c)
+    {
+        foreach (var kv in rooms)
+        {
+            var room = kv.Value;
+            if (room.Players.Contains(c)) return room;
+        }
+        return null;
+    }
+
+    private static void ApplyItemEffect(Room room, ClientState target, int itemId)
     {
         if (!itemDefs.TryGetValue(itemId, out var def))
         {
             Console.WriteLine($"[효과 적용 실패] itemId {itemId} 정의 없음");
             return;
         }
+
         switch (def.effectType)
         {
             case EffectType.Score:
-                target.score += (int)def.value1;
-                var scorePayload = new { score = target.score, add = (int)def.value1 };
-                target.Send(MessageType.ScoreUpdate, JsonConvert.SerializeObject(scorePayload));
-                Console.WriteLine($"[Score] {target.nickname} +{def.value1} → {target.score}");
-                break;
+                {
+                    target.score += (int)def.value1;
+
+                    int who = room.Players.IndexOf(target);
+                    var scorePayload = new { who = who, score = target.score, add = (int)def.value1 };
+                    string json = JsonConvert.SerializeObject(scorePayload);
+                    foreach (var p in room.Players)
+                        p.Send(MessageType.ScoreUpdate, json);
+
+                    Console.WriteLine($"[Score] {target.nickname} +{def.value1} → {target.score}");
+                    break;
+                }
 
             case EffectType.PlayerMoveSpeedUp:
-                var buffPayload = new
                 {
-                    type = "PlayerMoveSpeedUp",
-                    value = def.value1,
-                    duration = def.duration
-                };
-                target.Send(MessageType.ApplyBuff, JsonConvert.SerializeObject(buffPayload));
-                Console.WriteLine($"[Buff] {target.nickname} MoveSpeed +{def.value1} for {def.duration}s");
-                break;
+                    var buffPayload = new
+                    {
+                        type = "PlayerMoveSpeedUp",
+                        value = def.value1,
+                        duration = def.duration
+                    };
+                    target.Send(MessageType.ApplyBuff, JsonConvert.SerializeObject(buffPayload));
+                    Console.WriteLine($"[Buff] {target.nickname} MoveSpeed +{def.value1} for {def.duration}s");
+                    break;
+                }
 
             default:
                 Console.WriteLine($"[효과 미정의] {def.effectType}");
                 break;
         }
     }
+
+    private static void HandleDepositBag(ClientState sender)
+    {
+        if (sender.bag <= 0) return;
+
+        int add = sender.bag;
+        sender.bag = 0;
+        sender.score += add;
+
+        sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
+
+        var room = FindRoomOf(sender);
+        if (room != null)
+        {
+            int who = room.Players.IndexOf(sender);
+            var payload = new { who = who, score = sender.score, add = add };
+            string json = JsonConvert.SerializeObject(payload);
+            foreach (var p in room.Players)
+                p.Send(MessageType.ScoreUpdate, json);
+        }
+        else
+        {
+            var payload = new { who = -1, score = sender.score, add = add };
+            sender.Send(MessageType.ScoreUpdate, JsonConvert.SerializeObject(payload));
+        }
+
+        Console.WriteLine($"[Deposit] {sender.nickname} 입금 +{add} → score={sender.score}");
+    }
+
+    private static void CleanupClient(ClientState client)
+    {
+        Console.WriteLine($"[정리] {client.nickname} 연결 해제 및 방에서 제거");
+        var roomsToRemove = new List<string>();
+
+        foreach (var kvp in rooms)
+        {
+            var room = kvp.Value;
+            if (room.Players.Contains(client))
+            {
+                room.Players.Remove(client);
+                Console.WriteLine($"[방 퇴장] {client.nickname} → {room.Name}");
+
+                if (room.Players.Count == 0)
+                {
+                    roomsToRemove.Add(room.Name);
+                    room.DropCts?.Cancel();
+                    room.DropCts?.Dispose();
+                    room.DropCts = null;
+                    room.ActiveItemIds.Clear();
+                    room.ItemMap.Clear();
+                }
+            }
+        }
+        foreach (var roomName in roomsToRemove)
+        {
+            rooms.Remove(roomName);
+            Console.WriteLine($"[방 삭제] {roomName} (빈 방)");
+        }
+        try { client.reader?.Close(); } catch { }
+        try { client.writer?.Close(); } catch { }
+        try { client.client?.Close(); } catch { }
+    }
+
     public class ClientState
     {
         public TcpClient client;
@@ -567,6 +611,7 @@ public static class MatchServer
             reader = new StreamReader(stream);
             writer = new StreamWriter(stream) { AutoFlush = true };
         }
+
         public void Send(MessageType type, string data)
         {
             try

@@ -169,7 +169,7 @@ public class UnityClient : MonoBehaviour
                             var s = JsonConvert.DeserializeObject<ScoreDTO>(msg.Data);
                             UnityMainThreadDispatcher.Instance().Enqueue(() =>
                             {
-                                GameManager.Instance.UpdateMyScore(s.add, s.score);
+                                GameManager.Instance.UpdateScore(s.who, s.add, s.score);
                             });
                             break;
                         }
@@ -241,12 +241,13 @@ public class UnityClient : MonoBehaviour
             Data = instanceId
         });
     }
+
     public void SendDepositBag()
     {
         SendToServer(new GameMessage
         {
             Type = MessageType.DepositBag,
-            Data = "" 
+            Data = ""
         });
     }
 
@@ -334,8 +335,9 @@ public class UnityClient : MonoBehaviour
     [Serializable] public class StartGameInfo { public string roomName; public bool swap; }
     [Serializable] public class ItemSpawnDTO { public string instanceId; public int itemId; public float x; public float y; }
     [Serializable] public class BuffDTO { public string type; public float value; public float duration; }
-    [Serializable] public class ScoreDTO { public int score; public int add; }
-    [Serializable] public class BagDTO { public int bag; } 
+
+    [Serializable] public class ScoreDTO { public int who; public int score; public int add; }
+    [Serializable] public class BagDTO { public int bag; }
 
     public enum MessageType
     {
@@ -351,7 +353,7 @@ public class UnityClient : MonoBehaviour
         ItemRemove,
         ApplyBuff,
         ScoreUpdate,
-        BagUpdate,   
-        DepositBag   
+        BagUpdate,
+        DepositBag
     }
 }

@@ -9,19 +9,22 @@ public class GameManager : MonoBehaviour
     [Header("Prefabs")]
     public GameObject player1Prefab;
     public GameObject player2Prefab;
-    public GameObject areaPrefab;
-    public GameObject area2Prefab;
+    public GameObject areaPrefab;   
+    public GameObject area2Prefab;  
 
     public GameObject goldPrefab;
     public GameObject speedBoostPrefab;
 
     [Header("Canvas UI")]
-    public Text bagCountText;
-    public Text scoreText;
+    public Text bagCountText;     
+    public Text scoreText;        
+    public Text otherScoreText;   
 
     private GameObject myPlayer;
     private GameObject otherPlayer;
 
+    private GameObject areaObjRef;   
+    private GameObject area2ObjRef;  
     private Transform areaPos;
     private Transform area2Pos;
 
@@ -30,14 +33,28 @@ public class GameManager : MonoBehaviour
 
     private const int bagCapacity = 5;
     private int bagCount = 0;
-    private int localScore = 0;
+
+    private int myScore = 0;
+    private int otherScore = 0;
+
+    private int myIndex = -1;
 
     private Bounds myAreaBounds;
     private Bounds otherAreaBounds;
     private bool myAreaReady = false;
 
+    private bool mineInAreaA = true;
+
+    [SerializeField] private float marginX = 1.2f;
+    [SerializeField] private float marginY = 1.2f;
+
+    [SerializeField] private float area2ExtraDownY = 0.6f;
+
     private float depositCooldown = 0.2f;
     private float lastDepositSent = -1f;
+
+    private float _lastOrthoSize = -1f;
+    private int _lastW = -1, _lastH = -1;
 
     void Awake()
     {
@@ -48,32 +65,25 @@ public class GameManager : MonoBehaviour
 
     public void SpawnPlayers(int myIndex, bool swap)
     {
+        this.myIndex = myIndex;
         Debug.Log($"[GameManager] 플레이어 스폰 - 내 인덱스: {myIndex}, swap: {swap}");
 
-        Vector3 areaSpawnPos_LB = new Vector3(-8, -4, 0);
-        Vector3 areaSpawnPos_RT = new Vector3(8, 4, 0);
+        Vector3 areaSpawnPos_LB, areaSpawnPos_RT;
+        GetCornerPositions(out areaSpawnPos_LB, out areaSpawnPos_RT);
 
-        GameObject areaObj = Instantiate(areaPrefab, areaSpawnPos_LB, Quaternion.identity);
-        GameObject area2Obj = Instantiate(area2Prefab, areaSpawnPos_RT, Quaternion.identity);
+        areaObjRef = Instantiate(areaPrefab, areaSpawnPos_LB, Quaternion.identity);
+        area2ObjRef = Instantiate(area2Prefab, areaSpawnPos_RT, Quaternion.identity);
 
-        areaPos = areaObj.transform;
-        area2Pos = area2Obj.transform;
-
-        Vector3 GetInnerSpawn(Transform areaTransform)
-        {
-            float radius = 0.3f;
-            float offsetX = Random.Range(-radius, radius);
-            float offsetY = Random.Range(-radius, radius);
-            return areaTransform.position + new Vector3(offsetX, offsetY, 0);
-        }
+        areaPos = areaObjRef.transform;
+        area2Pos = area2ObjRef.transform;
 
         GameObject myPrefab = myIndex == 0 ? player1Prefab : player2Prefab;
         GameObject otherPrefab = myIndex == 0 ? player2Prefab : player1Prefab;
 
-        bool mineInAreaA = ((myIndex == 0) ^ swap);
+        mineInAreaA = ((myIndex == 0) ^ swap);
 
-        Vector3 mySpawn = mineInAreaA ? GetInnerSpawn(areaPos) : GetInnerSpawn(area2Pos);
-        Vector3 otherSpawn = mineInAreaA ? GetInnerSpawn(area2Pos) : GetInnerSpawn(areaPos);
+        Vector3 mySpawn = GetInnerSpawn(mineInAreaA ? areaPos : area2Pos);
+        Vector3 otherSpawn = GetInnerSpawn(mineInAreaA ? area2Pos : areaPos);
 
         myPlayer = Instantiate(myPrefab, mySpawn, Quaternion.identity);
         myPlayer.GetComponent<PlayerController>().isMine = true;
@@ -81,28 +91,77 @@ public class GameManager : MonoBehaviour
         otherPlayer = Instantiate(otherPrefab, otherSpawn, Quaternion.identity);
         otherPlayer.GetComponent<PlayerController>().isMine = false;
 
-        Bounds GetBounds(GameObject go)
+        RebuildAreaBoundsAndForbidden();
+
+        myScore = 0;
+        otherScore = 0;
+        RefreshUI();
+
+        CacheScreenCameraState();
+    }
+    private void GetCornerPositions(out Vector3 lb, out Vector3 rt)
+    {
+        var cam = Camera.main;
+        if (!cam)
         {
-            var col = go.GetComponentInChildren<Collider2D>();
-            if (col != null) return col.bounds;
-            var sr = go.GetComponentInChildren<SpriteRenderer>();
-            if (sr != null) return sr.bounds;
-            return new Bounds(go.transform.position, new Vector3(2f, 2f, 0f));
+            lb = new Vector3(-8, -4, 0);
+            rt = new Vector3(8, 4 - area2ExtraDownY, 0);
+            return;
         }
 
-        Bounds areaA = GetBounds(areaObj);
-        Bounds areaB = GetBounds(area2Obj);
+        float z = -cam.transform.position.z; 
+        Vector3 bl = cam.ViewportToWorldPoint(new Vector3(0f, 0f, z)); 
+        Vector3 tr = cam.ViewportToWorldPoint(new Vector3(1f, 1f, z)); 
+
+        lb = new Vector3(bl.x + marginX, bl.y + marginY, 0f);
+        rt = new Vector3(tr.x - marginX, tr.y - marginY - area2ExtraDownY, 0f); 
+    }
+
+    private Vector3 GetInnerSpawn(Transform areaTransform)
+    {
+        float radius = 0.3f;
+        float offsetX = Random.Range(-radius, radius);
+        float offsetY = Random.Range(-radius, radius);
+        return areaTransform.position + new Vector3(offsetX, offsetY, 0);
+    }
+
+    private Bounds GetBounds(GameObject go)
+    {
+        var col = go.GetComponentInChildren<Collider2D>();
+        if (col != null) return col.bounds;
+        var sr = go.GetComponentInChildren<SpriteRenderer>();
+        if (sr != null) return sr.bounds;
+        return new Bounds(go.transform.position, new Vector3(2f, 2f, 0f));
+    }
+
+    private void RepositionAreasToCorners()
+    {
+        if (areaPos == null || area2Pos == null) return;
+
+        Vector3 lb, rt;
+        GetCornerPositions(out lb, out rt);
+        areaPos.position = lb;
+        area2Pos.position = rt;
+
+        RebuildAreaBoundsAndForbidden();
+    }
+
+    private void RebuildAreaBoundsAndForbidden()
+    {
+        if (areaObjRef == null || area2ObjRef == null || myPlayer == null || otherPlayer == null) return;
+
+        Bounds areaA = GetBounds(areaObjRef);
+        Bounds areaB = GetBounds(area2ObjRef);
 
         myAreaBounds = mineInAreaA ? areaA : areaB;
         otherAreaBounds = mineInAreaA ? areaB : areaA;
         myAreaReady = true;
 
-        myPlayer.GetComponent<PlayerController>().SetForbiddenBounds(otherAreaBounds);
-        otherPlayer.GetComponent<PlayerController>().SetForbiddenBounds(myAreaBounds);
-
-        RefreshUI();
+        var myPC = myPlayer.GetComponent<PlayerController>();
+        var otherPC = otherPlayer.GetComponent<PlayerController>();
+        if (myPC) myPC.SetForbiddenBounds(otherAreaBounds);
+        if (otherPC) otherPC.SetForbiddenBounds(myAreaBounds);
     }
-
 
     public void UpdateOtherPlayerPosition(float x, float y)
     {
@@ -117,8 +176,8 @@ public class GameManager : MonoBehaviour
         GameObject prefab = null;
         switch (itemId)
         {
-            case 10000: prefab = goldPrefab; break;
-            case 11000: prefab = speedBoostPrefab; break;
+            case 10000: prefab = goldPrefab; break;         
+            case 11000: prefab = speedBoostPrefab; break;    
             default:
                 Debug.LogWarning($"알 수 없는 아이템 ID: {itemId}");
                 return;
@@ -142,12 +201,13 @@ public class GameManager : MonoBehaviour
         }
         instanceToItemId.Remove(instanceId);
     }
+
     public bool TryPickupLocally(string instanceId)
     {
         if (!instanceToItemId.TryGetValue(instanceId, out int itemId))
             return false;
 
-        if (itemId == 10000)
+        if (itemId == 10000) 
         {
             if (bagCount >= bagCapacity)
             {
@@ -163,6 +223,12 @@ public class GameManager : MonoBehaviour
     {
         if (!myAreaReady || myPlayer == null) return;
 
+        if (CameraOrScreenChanged())
+        {
+            RepositionAreasToCorners();
+            CacheScreenCameraState();
+        }
+
         if (bagCount > 0 && Inside(myAreaBounds, myPlayer.transform.position))
         {
             if (Time.time - lastDepositSent > depositCooldown)
@@ -171,6 +237,23 @@ public class GameManager : MonoBehaviour
                 lastDepositSent = Time.time;
             }
         }
+    }
+
+    private bool CameraOrScreenChanged()
+    {
+        var cam = Camera.main;
+        if (!cam) return false;
+        return Mathf.Abs(_lastOrthoSize - cam.orthographicSize) > 0.01f ||
+               _lastW != Screen.width || _lastH != Screen.height;
+    }
+
+    private void CacheScreenCameraState()
+    {
+        var cam = Camera.main;
+        if (!cam) return;
+        _lastOrthoSize = cam.orthographicSize;
+        _lastW = Screen.width;
+        _lastH = Screen.height;
     }
 
     private bool Inside(Bounds b, Vector3 p)
@@ -183,7 +266,8 @@ public class GameManager : MonoBehaviour
     private void RefreshUI()
     {
         if (bagCountText != null) bagCountText.text = $"{bagCount}/{bagCapacity}";
-        if (scoreText != null) scoreText.text = $"{localScore}";
+        if (scoreText != null) scoreText.text = myScore.ToString();
+        if (otherScoreText != null) otherScoreText.text = otherScore.ToString();
     }
 
     public void OnBagUpdate(int bag)
@@ -192,11 +276,19 @@ public class GameManager : MonoBehaviour
         RefreshUI();
     }
 
+    public void UpdateScore(int who, int add, int total)
+    {
+        if (who == myIndex) myScore = total;
+        else otherScore = total;
+
+        RefreshUI();
+        Debug.Log($"[ScoreSync] who={who}, +{add} → total={total} / (me:{myScore}, other:{otherScore})");
+    }
     public void UpdateMyScore(int add, int total)
     {
-        localScore = total;
-        Debug.Log($"[ServerScore] +{add} → 총점 {total}");
+        myScore = total;
         RefreshUI();
+        Debug.Log($"[ServerScore-Compat] +{add} → 총점 {total}");
     }
 
     public void ApplyBuffToMe(string type, float value, float duration)
