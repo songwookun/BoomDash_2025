@@ -6,6 +6,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using System.Collections;
 using Newtonsoft.Json;
 
 public class UnityClient : MonoBehaviour
@@ -46,7 +47,6 @@ public class UnityClient : MonoBehaviour
             Destroy(gameObject);
             return;
         }
-
         Instance = this;
         DontDestroyOnLoad(gameObject);
         ConnectToServer();
@@ -54,18 +54,17 @@ public class UnityClient : MonoBehaviour
 
     private void Start()
     {
-        createButton.onClick.AddListener(CreateRoom);
-        joinButton.onClick.AddListener(JoinRoom);
-        isPrivateDropdown.onValueChanged.AddListener(OnPrivacyChanged);
-        openCreatePopupButton.onClick.AddListener(() => ShowPanel(createRoomPanel));
-        openJoinPopupButton.onClick.AddListener(() => ShowPanel(joinRoomPanel));
-        cancelCreateButton.onClick.AddListener(() => ShowPanel(mainLobbyPanel));
-        cancelJoinButton.onClick.AddListener(() => ShowPanel(mainLobbyPanel));
+        if (createButton) createButton.onClick.AddListener(CreateRoom);
+        if (joinButton) joinButton.onClick.AddListener(JoinRoom);
+        if (isPrivateDropdown) isPrivateDropdown.onValueChanged.AddListener(OnPrivacyChanged);
+        if (openCreatePopupButton) openCreatePopupButton.onClick.AddListener(() => ShowPanel(createRoomPanel));
+        if (openJoinPopupButton) openJoinPopupButton.onClick.AddListener(() => ShowPanel(joinRoomPanel));
+        if (cancelCreateButton) cancelCreateButton.onClick.AddListener(() => ShowPanel(mainLobbyPanel));
+        if (cancelJoinButton) cancelJoinButton.onClick.AddListener(() => ShowPanel(mainLobbyPanel));
 
         ShowPanel(mainLobbyPanel);
-        passwordInput.gameObject.SetActive(false);
+        if (passwordInput) passwordInput.gameObject.SetActive(false);
     }
-
     void ConnectToServer()
     {
         try
@@ -184,6 +183,35 @@ public class UnityClient : MonoBehaviour
                             break;
                         }
 
+                    case MessageType.TimerSync:
+                        {
+                            int sec = int.Parse(msg.Data);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                GameManager.Instance.UpdateTimerFromServer(sec);
+                            });
+                            break;
+                        }
+
+                    case MessageType.MatchOver:
+                        {
+                            var over = JsonConvert.DeserializeObject<MatchOverDTO>(msg.Data);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                GameManager.Instance.OnMatchOver(over.winner, over.p0, over.p1);
+                            });
+                            break;
+                        }
+
+                    case MessageType.ReturnToLobby:
+                        {
+                            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                            {
+                                SceneManager.LoadScene("MainScene");
+                            });
+                            break;
+                        }
+
                     case MessageType.Error:
                         {
                             Debug.LogWarning("[서버 오류] " + msg.Data);
@@ -197,8 +225,7 @@ public class UnityClient : MonoBehaviour
             Debug.LogError($"[ReceiveLoop 예외] {ex.Message}");
         }
     }
-
-    private System.Collections.IEnumerator WaitThenRequestMyOrder(string roomName, bool swap)
+    IEnumerator WaitThenRequestMyOrder(string roomName, bool swap)
     {
         cachedSwap = swap;
         yield return new WaitForSeconds(0.5f);
@@ -208,7 +235,6 @@ public class UnityClient : MonoBehaviour
             Data = roomName
         });
     }
-
     void SendToServer(GameMessage msg)
     {
         try
@@ -222,7 +248,6 @@ public class UnityClient : MonoBehaviour
             Debug.LogError("서버 전송 실패: " + e.Message);
         }
     }
-
     public void SendMove(float x, float y)
     {
         var move = new MoveData { x = x, y = y };
@@ -232,7 +257,6 @@ public class UnityClient : MonoBehaviour
             Data = JsonConvert.SerializeObject(move)
         });
     }
-
     public void SendItemPickup(string instanceId)
     {
         SendToServer(new GameMessage
@@ -241,7 +265,6 @@ public class UnityClient : MonoBehaviour
             Data = instanceId
         });
     }
-
     public void SendDepositBag()
     {
         SendToServer(new GameMessage
@@ -250,16 +273,23 @@ public class UnityClient : MonoBehaviour
             Data = ""
         });
     }
-
+    public void RequestRematch()
+    {
+        SendToServer(new GameMessage { Type = MessageType.RequestRematch, Data = "" });
+    }
+    public void RequestExitToLobby()
+    {
+        SendToServer(new GameMessage { Type = MessageType.ExitToLobby, Data = "" });
+    }
     void CreateRoom()
     {
         if (!isConnected) return;
 
         var room = new RoomData
         {
-            Name = roomNameInput.text,
-            IsPrivate = isPrivateDropdown.value == 1,
-            Password = passwordInput.text,
+            Name = roomNameInput ? roomNameInput.text : "Room",
+            IsPrivate = isPrivateDropdown ? isPrivateDropdown.value == 1 : false,
+            Password = passwordInput ? passwordInput.text : "",
             MaxPlayers = int.Parse(maxPlayersDropdown.options[maxPlayersDropdown.value].text)
         };
 
@@ -276,8 +306,8 @@ public class UnityClient : MonoBehaviour
 
         var joinData = new JoinRoomRequest
         {
-            roomName = joinRoomNameInput.text,
-            password = joinPasswordInput.text
+            roomName = joinRoomNameInput ? joinRoomNameInput.text : "",
+            password = joinPasswordInput ? joinPasswordInput.text : ""
         };
 
         SendToServer(new GameMessage
@@ -289,15 +319,16 @@ public class UnityClient : MonoBehaviour
 
     void ShowPanel(GameObject panel)
     {
-        createRoomPanel.SetActive(false);
-        joinRoomPanel.SetActive(false);
-        mainLobbyPanel.SetActive(false);
+        if (!panel) return;
+        if (createRoomPanel) createRoomPanel.SetActive(false);
+        if (joinRoomPanel) joinRoomPanel.SetActive(false);
+        if (mainLobbyPanel) mainLobbyPanel.SetActive(false);
         panel.SetActive(true);
     }
 
     void OnPrivacyChanged(int index)
     {
-        passwordInput.gameObject.SetActive(index == 1);
+        if (passwordInput) passwordInput.gameObject.SetActive(index == 1);
     }
 
     private void OnApplicationQuit()
@@ -317,27 +348,15 @@ public class UnityClient : MonoBehaviour
         public int MaxPlayers;
     }
 
-    [Serializable]
-    public class JoinRoomRequest
-    {
-        public string roomName;
-        public string password;
-    }
-
-    [Serializable]
-    public class GameMessage
-    {
-        public MessageType Type;
-        public string Data;
-    }
-
+    [Serializable] public class JoinRoomRequest { public string roomName; public string password; }
+    [Serializable] public class GameMessage { public MessageType Type; public string Data; }
     [Serializable] public class MoveData { public float x; public float y; }
     [Serializable] public class StartGameInfo { public string roomName; public bool swap; }
     [Serializable] public class ItemSpawnDTO { public string instanceId; public int itemId; public float x; public float y; }
     [Serializable] public class BuffDTO { public string type; public float value; public float duration; }
-
     [Serializable] public class ScoreDTO { public int who; public int score; public int add; }
     [Serializable] public class BagDTO { public int bag; }
+    [Serializable] public class MatchOverDTO { public int winner; public int p0; public int p1; }
 
     public enum MessageType
     {
@@ -354,6 +373,11 @@ public class UnityClient : MonoBehaviour
         ApplyBuff,
         ScoreUpdate,
         BagUpdate,
-        DepositBag
+        DepositBag,
+        RequestRematch,
+        ExitToLobby,
+        ReturnToLobby,
+        TimerSync,
+        MatchOver
     }
 }

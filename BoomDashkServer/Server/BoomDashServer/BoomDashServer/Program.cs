@@ -1,6 +1,8 @@
-﻿using System;
+﻿#nullable enable
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -30,7 +32,12 @@ public enum MessageType
     ApplyBuff,
     ScoreUpdate,
     BagUpdate,
-    DepositBag
+    DepositBag,
+    RequestRematch,
+    ExitToLobby,
+    ReturnToLobby,
+    TimerSync,  
+    MatchOver   
 }
 
 public class GameMessage
@@ -64,15 +71,21 @@ public class Room
     public string Password { get; set; } = string.Empty;
     public int MaxPlayers { get; set; }
     public List<MatchServer.ClientState> Players { get; set; } = new();
+
     public CancellationTokenSource? DropCts { get; set; }
     public HashSet<string> ActiveItemIds { get; set; } = new();
     public Dictionary<string, int> ItemMap { get; set; } = new();
+
+    public CancellationTokenSource? MatchCts { get; set; }
+    public int SecondsLeft { get; set; } = 0;
+    public bool IsMatchRunning =>
+        MatchCts != null && !MatchCts.IsCancellationRequested && SecondsLeft > 0;
 }
 
 public class JoinRoomRequest
 {
-    public string roomName { get; set; }
-    public string password { get; set; }
+    public string roomName { get; set; } = string.Empty;
+    public string password { get; set; } = string.Empty; 
 }
 
 public class ItemDropEntry
@@ -88,10 +101,11 @@ public static class MatchServer
 {
     private static TcpListener? listener;
     private const int port = 7777;
-    private static Dictionary<string, Room> rooms = new();
+    private static readonly Dictionary<string, Room> rooms = new();
     private static int playerCount = 0;
-    private static List<ItemDropEntry> dropTable = new();
-    private static Dictionary<int, ItemDef> itemDefs = new();
+
+    private static readonly List<ItemDropEntry> dropTable = new();
+    private static readonly Dictionary<int, ItemDef> itemDefs = new();
 
     private const float minX = -8f, maxX = 8f, minY = -4f, maxY = 4f;
 
@@ -107,7 +121,7 @@ public static class MatchServer
         while (true)
         {
             TcpClient client = listener.AcceptTcpClient();
-            Task.Run(() => HandleClient(new ClientState(client)));
+            _ = Task.Run(() => HandleClient(new ClientState(client)));
         }
     }
 
@@ -130,7 +144,11 @@ public static class MatchServer
                 if (raw.StartsWith("#")) continue;
 
                 var cols = raw.Split(',');
-                if (cols.Length < 7) { Console.WriteLine($"[Item.csv] 형식 오류: {raw}"); continue; }
+                if (cols.Length < 7)
+                {
+                    Console.WriteLine($"[Item.csv] 형식 오류: {raw}");
+                    continue;
+                }
 
                 try
                 {
@@ -185,7 +203,7 @@ public static class MatchServer
                     var e = new ItemDropEntry
                     {
                         itemID = int.Parse(cols[0]),
-                        itemName = cols[1],
+                        itemName = cols[1], 
                         dropQuantityMin = int.Parse(cols[2]),
                         dropQuantityMax = int.Parse(cols[3]),
                         dropTime = int.Parse(cols[4])
@@ -228,23 +246,37 @@ public static class MatchServer
                     case MessageType.CreateRoom:
                         HandleCreateRoom(client, msg.Data);
                         break;
+
                     case MessageType.JoinRoom:
                         HandleJoinRoom(client, msg.Data);
                         break;
+
                     case MessageType.RoomList:
                         HandleRoomList(client);
                         break;
+
                     case MessageType.MyOrder:
                         HandleMyOrder(client, msg.Data);
                         break;
+
                     case MessageType.Move:
                         RelayMovement(client, msg.Data);
                         break;
+
                     case MessageType.ItemPickup:
                         HandleItemPickup(client, msg.Data);
                         break;
+
                     case MessageType.DepositBag:
                         HandleDepositBag(client);
+                        break;
+
+                    case MessageType.RequestRematch:
+                        HandleRequestRematch(client);
+                        break;
+
+                    case MessageType.ExitToLobby:
+                        HandleExitToLobby(client);
                         break;
                 }
             }
@@ -261,12 +293,27 @@ public static class MatchServer
 
     private static void HandleCreateRoom(ClientState client, string data)
     {
-        var room = JsonConvert.DeserializeObject<Room>(data);
-        if (room == null || rooms.ContainsKey(room.Name))
+        var roomPayload = JsonConvert.DeserializeObject<Room>(data);
+        if (roomPayload == null)
         {
-            client.Send(MessageType.Error, "방 생성 실패 또는 이미 존재합니다.");
+            client.Send(MessageType.Error, "방 생성 데이터 오류");
             return;
         }
+
+        if (rooms.ContainsKey(roomPayload.Name))
+        {
+            client.Send(MessageType.Error, "이미 존재하는 방 이름입니다.");
+            return;
+        }
+
+        var room = new Room
+        {
+            Name = roomPayload.Name,
+            IsPrivate = roomPayload.IsPrivate,
+            Password = roomPayload.Password ?? "",
+            MaxPlayers = roomPayload.MaxPlayers
+        };
+
         room.Players.Add(client);
         rooms.Add(room.Name, room);
         Console.WriteLine($"[방 생성] {room.Name} (공개 여부: {(room.IsPrivate ? "비공개" : "공개")})");
@@ -310,39 +357,33 @@ public static class MatchServer
             }
 
             StartItemSpawners(room);
+            StartMatchTimer(room, 300); 
         }
     }
 
     private static void HandleRoomList(ClientState client)
     {
-        var summaries = new List<object>();
-        foreach (var kvp in rooms)
+        var summaries = rooms.Values.Select(r => new
         {
-            summaries.Add(new
-            {
-                name = kvp.Value.Name,
-                isPrivate = kvp.Value.IsPrivate,
-                current = kvp.Value.Players.Count,
-                max = kvp.Value.MaxPlayers
-            });
-        }
+            name = r.Name,
+            isPrivate = r.IsPrivate,
+            current = r.Players.Count,
+            max = r.MaxPlayers
+        }).ToList();
+
         string json = JsonConvert.SerializeObject(summaries);
         client.Send(MessageType.RoomList, json);
     }
 
     private static void BroadcastRoomList()
     {
-        var clientsToRemove = new List<ClientState>();
         foreach (var room in rooms.Values)
         {
-            foreach (var player in room.Players)
+            foreach (var player in room.Players.ToArray())
             {
-                try { HandleRoomList(player); }
-                catch { clientsToRemove.Add(player); }
+                try { HandleRoomList(player); } catch { }
             }
         }
-        foreach (var c in clientsToRemove)
-            CleanupClient(c);
     }
 
     private static void HandleMyOrder(ClientState client, string roomName)
@@ -369,17 +410,61 @@ public static class MatchServer
 
     private static void RelayMovement(ClientState sender, string data)
     {
-        foreach (var room in rooms.Values)
+        var room = FindRoomOf(sender);
+        if (room == null || !room.IsMatchRunning) return; 
+
+        foreach (var player in room.Players)
         {
-            if (room.Players.Contains(sender))
+            if (player != sender)
+                player.Send(MessageType.Move, data);
+        }
+    }
+
+    private static void StartMatchTimer(Room room, int seconds)
+    {
+        room.MatchCts?.Cancel();
+        room.MatchCts?.Dispose();
+        room.MatchCts = new CancellationTokenSource();
+        room.SecondsLeft = seconds;
+
+        var token = room.MatchCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
             {
-                foreach (var player in room.Players)
+                while (!token.IsCancellationRequested && room.SecondsLeft > 0)
                 {
-                    if (player != sender)
-                        player.Send(MessageType.Move, data);
+                    await Task.Delay(1000, token);
+                    room.SecondsLeft--;
+
+                    foreach (var p in room.Players)
+                        p.Send(MessageType.TimerSync, room.SecondsLeft.ToString());
                 }
             }
-        }
+            catch { /* 취소 등 무시 */ }
+
+            if (token.IsCancellationRequested) return;
+
+            room.DropCts?.Cancel();
+            room.DropCts?.Dispose();
+            room.DropCts = null;
+
+            int p0 = room.Players.Count > 0 ? room.Players[0].score : 0;
+            int p1 = room.Players.Count > 1 ? room.Players[1].score : 0;
+
+            int winner = -1; 
+            if (room.Players.Count >= 2)
+            {
+                if (p0 > p1) winner = 0;
+                else if (p1 > p0) winner = 1;
+            }
+
+            var payload = new { winner, p0, p1 };
+            string json = JsonConvert.SerializeObject(payload);
+            foreach (var p in room.Players)
+                p.Send(MessageType.MatchOver, json);
+        }, token);
     }
 
     private static void StartItemSpawners(Room room)
@@ -398,7 +483,7 @@ public static class MatchServer
 
         foreach (var entry in dropTable)
         {
-            Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 var rng = new Random(Guid.NewGuid().GetHashCode());
                 while (!token.IsCancellationRequested)
@@ -439,46 +524,44 @@ public static class MatchServer
         string instanceId = data?.Trim() ?? "";
         if (string.IsNullOrEmpty(instanceId)) return;
 
-        foreach (var room in rooms.Values)
+        var room = FindRoomOf(sender);
+        if (room == null || !room.IsMatchRunning) return; 
+
+        int itemId;
+        bool picked = false;
+
+        lock (room)
         {
-            if (!room.Players.Contains(sender)) continue;
+            if (!room.ItemMap.TryGetValue(instanceId, out itemId))
+                return;
 
-            int itemId;
-            bool picked = false;
-
-            lock (room)
+            if (itemId == 10000 && sender.bag >= 5)
             {
-                if (!room.ItemMap.TryGetValue(instanceId, out itemId))
-                    return;
-
-                if (itemId == 10000 && sender.bag >= 5)
-                {
-                    sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
-                    return;
-                }
-
-                room.ActiveItemIds.Remove(instanceId);
-                room.ItemMap.Remove(instanceId);
-                picked = true;
-            }
-
-            if (!picked) return;
-
-            foreach (var p in room.Players)
-                p.Send(MessageType.ItemRemove, instanceId);
-
-            if (itemId == 10000)
-            {
-                sender.bag += 1;
                 sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
+                return;
             }
-            else
-            {
-                ApplyItemEffect(room, sender, itemId);
-            }
-            return;
+
+            room.ActiveItemIds.Remove(instanceId);
+            room.ItemMap.Remove(instanceId);
+            picked = true;
+        }
+
+        if (!picked) return;
+
+        foreach (var p in room.Players)
+            p.Send(MessageType.ItemRemove, instanceId);
+
+        if (itemId == 10000) 
+        {
+            sender.bag += 1;
+            sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
+        }
+        else
+        {
+            ApplyItemEffect(room, sender, itemId);
         }
     }
+
     private static Room? FindRoomOf(ClientState c)
     {
         foreach (var kv in rooms)
@@ -531,9 +614,10 @@ public static class MatchServer
                 break;
         }
     }
-
     private static void HandleDepositBag(ClientState sender)
     {
+        var room = FindRoomOf(sender);
+        if (room == null || !room.IsMatchRunning) return; 
         if (sender.bag <= 0) return;
 
         int add = sender.bag;
@@ -542,24 +626,88 @@ public static class MatchServer
 
         sender.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = sender.bag }));
 
-        var room = FindRoomOf(sender);
-        if (room != null)
-        {
-            int who = room.Players.IndexOf(sender);
-            var payload = new { who = who, score = sender.score, add = add };
-            string json = JsonConvert.SerializeObject(payload);
-            foreach (var p in room.Players)
-                p.Send(MessageType.ScoreUpdate, json);
-        }
-        else
-        {
-            var payload = new { who = -1, score = sender.score, add = add };
-            sender.Send(MessageType.ScoreUpdate, JsonConvert.SerializeObject(payload));
-        }
+        int who = room.Players.IndexOf(sender);
+        var payload = new { who = who, score = sender.score, add = add };
+        string json = JsonConvert.SerializeObject(payload);
+        foreach (var p in room.Players)
+            p.Send(MessageType.ScoreUpdate, json);
 
         Console.WriteLine($"[Deposit] {sender.nickname} 입금 +{add} → score={sender.score}");
     }
 
+    private static void HandleRequestRematch(ClientState client)
+    {
+        var room = FindRoomOf(client);
+        if (room == null) return;
+
+        client.wantsRematch = true;
+        Console.WriteLine($"[Rematch] {client.nickname} 요청");
+
+        bool allReady = room.Players.Count == room.MaxPlayers &&
+                        room.Players.All(p => p.wantsRematch);
+
+        if (!allReady) return;
+
+        foreach (var p in room.Players)
+        {
+            p.wantsRematch = false;
+            p.score = 0;
+            p.bag = 0;
+            p.Send(MessageType.BagUpdate, JsonConvert.SerializeObject(new { bag = 0 }));
+            var zeroScore = new { who = -1, score = 0, add = 0 };
+            p.Send(MessageType.ScoreUpdate, JsonConvert.SerializeObject(zeroScore));
+        }
+
+        room.DropCts?.Cancel();
+        room.DropCts?.Dispose();
+        room.DropCts = null;
+        room.ActiveItemIds.Clear();
+        room.ItemMap.Clear();
+
+        room.MatchCts?.Cancel();
+        room.MatchCts?.Dispose();
+        room.MatchCts = null;
+        room.SecondsLeft = 0;
+
+        bool swap = new Random().Next(0, 2) == 1;
+        foreach (var p in room.Players)
+        {
+            var gameStartPayload = new { roomName = room.Name, swap = swap };
+            string json = JsonConvert.SerializeObject(gameStartPayload);
+            p.Send(MessageType.StartGame, json);
+        }
+
+        StartItemSpawners(room);
+        StartMatchTimer(room, 300); 
+        Console.WriteLine($"[Rematch] 방 {room.Name} 재시작");
+    }
+    private static void HandleExitToLobby(ClientState client)
+    {
+        var room = FindRoomOf(client);
+        if (room == null) return;
+
+        Console.WriteLine($"[Exit] {client.nickname} → 방 {room.Name} 해체 후 로비로");
+
+        foreach (var p in room.Players.ToArray())
+        {
+            try { p.Send(MessageType.ReturnToLobby, ""); } catch { }
+        }
+
+        room.DropCts?.Cancel();
+        room.DropCts?.Dispose();
+        room.DropCts = null;
+
+        room.MatchCts?.Cancel();
+        room.MatchCts?.Dispose();
+        room.MatchCts = null;
+        room.SecondsLeft = 0;
+
+        room.ActiveItemIds.Clear();
+        room.ItemMap.Clear();
+
+        rooms.Remove(room.Name);
+        BroadcastRoomList();
+    }
     private static void CleanupClient(ClientState client)
     {
         Console.WriteLine($"[정리] {client.nickname} 연결 해제 및 방에서 제거");
@@ -576,9 +724,16 @@ public static class MatchServer
                 if (room.Players.Count == 0)
                 {
                     roomsToRemove.Add(room.Name);
+
                     room.DropCts?.Cancel();
                     room.DropCts?.Dispose();
                     room.DropCts = null;
+
+                    room.MatchCts?.Cancel();
+                    room.MatchCts?.Dispose();
+                    room.MatchCts = null;
+                    room.SecondsLeft = 0;
+
                     room.ActiveItemIds.Clear();
                     room.ItemMap.Clear();
                 }
@@ -593,7 +748,6 @@ public static class MatchServer
         try { client.writer?.Close(); } catch { }
         try { client.client?.Close(); } catch { }
     }
-
     public class ClientState
     {
         public TcpClient client;
@@ -603,6 +757,7 @@ public static class MatchServer
         public string nickname = "";
         public int score = 0;
         public int bag = 0;
+        public bool wantsRematch = false;
 
         public ClientState(TcpClient c)
         {
