@@ -357,7 +357,7 @@ public static class MatchServer
             }
 
             StartItemSpawners(room);
-            StartMatchTimer(room, 300); 
+            StartMatchTimer(room, 10); 
         }
     }
 
@@ -678,7 +678,7 @@ public static class MatchServer
         }
 
         StartItemSpawners(room);
-        StartMatchTimer(room, 300); 
+        StartMatchTimer(room, 10); 
         Console.WriteLine($"[Rematch] 방 {room.Name} 재시작");
     }
     private static void HandleExitToLobby(ClientState client)

@@ -1737,7 +1737,6 @@ MonoBehaviour:
   scoreText: {fileID: 286715254}
   otherScoreText: {fileID: 256135110}
   timerText: {fileID: 1190178209}
-  matchTimeSeconds: 300
   endPopup: {fileID: 1907731362}
   endTitleText: {fileID: 897514575}
   rematchButton: {fileID: 427540112}

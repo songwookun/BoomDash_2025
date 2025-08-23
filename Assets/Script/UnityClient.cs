@@ -38,7 +38,8 @@ public class UnityClient : MonoBehaviour
     private Thread receiveThread;
     private bool isConnected = false;
 
-    private bool cachedSwap = false;
+    private bool cachedSwap = false;              
+    private bool pendingReconnectOnLobby = false; 
 
     private void Awake()
     {
@@ -49,23 +50,131 @@ public class UnityClient : MonoBehaviour
         }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+
+        SceneManager.sceneLoaded += OnSceneLoaded;
         ConnectToServer();
     }
 
-    private void Start()
+    private void OnDestroy()
     {
-        if (createButton) createButton.onClick.AddListener(CreateRoom);
-        if (joinButton) joinButton.onClick.AddListener(JoinRoom);
-        if (isPrivateDropdown) isPrivateDropdown.onValueChanged.AddListener(OnPrivacyChanged);
-        if (openCreatePopupButton) openCreatePopupButton.onClick.AddListener(() => ShowPanel(createRoomPanel));
-        if (openJoinPopupButton) openJoinPopupButton.onClick.AddListener(() => ShowPanel(joinRoomPanel));
-        if (cancelCreateButton) cancelCreateButton.onClick.AddListener(() => ShowPanel(mainLobbyPanel));
-        if (cancelJoinButton) cancelJoinButton.onClick.AddListener(() => ShowPanel(mainLobbyPanel));
-
-        ShowPanel(mainLobbyPanel);
-        if (passwordInput) passwordInput.gameObject.SetActive(false);
+        SceneManager.sceneLoaded -= OnSceneLoaded;
     }
-    void ConnectToServer()
+
+    private void OnApplicationQuit()
+    {
+        try { receiveThread?.Abort(); } catch { }
+        try { writer?.Close(); } catch { }
+        try { reader?.Close(); } catch { }
+        try { client?.Close(); } catch { }
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.name == "MainScene")
+        {
+            LobbyUIBinder binder = null;
+#if UNITY_2023_1_OR_NEWER
+            binder = UnityEngine.Object.FindFirstObjectByType<LobbyUIBinder>(FindObjectsInactive.Include);
+            if (binder == null)
+                binder = UnityEngine.Object.FindAnyObjectByType<LobbyUIBinder>();
+#else
+        binder = UnityEngine.Object.FindObjectOfType<LobbyUIBinder>();
+#endif
+            if (binder != null) BindLobbyUI(binder);
+
+            if (pendingReconnectOnLobby)
+            {
+                pendingReconnectOnLobby = false;
+                SafeReconnect();
+            }
+        }
+    }
+
+    public void BindLobbyUI(LobbyUIBinder b)
+    {
+        createRoomPanel = b.createRoomPanel;
+        joinRoomPanel = b.joinRoomPanel;
+        mainLobbyPanel = b.mainLobbyPanel;
+
+        roomNameInput = b.roomNameInput;
+        isPrivateDropdown = b.isPrivateDropdown;
+        passwordInput = b.passwordInput;
+        maxPlayersDropdown = b.maxPlayersDropdown;
+        createButton = b.createButton;
+        cancelCreateButton = b.cancelCreateButton;
+
+        joinRoomNameInput = b.joinRoomNameInput;
+        joinPasswordInput = b.joinPasswordInput;
+        joinButton = b.joinButton;
+        cancelJoinButton = b.cancelJoinButton;
+
+        openCreatePopupButton = b.openCreatePopupButton;
+        openJoinPopupButton = b.openJoinPopupButton;
+
+        if (createButton)
+        {
+            createButton.onClick.RemoveAllListeners();
+            createButton.onClick.AddListener(CreateRoom);
+        }
+        if (joinButton)
+        {
+            joinButton.onClick.RemoveAllListeners();
+            joinButton.onClick.AddListener(JoinRoom);     
+        }
+        if (isPrivateDropdown)
+        {
+            isPrivateDropdown.onValueChanged.RemoveAllListeners();
+            isPrivateDropdown.onValueChanged.AddListener(OnPrivacyChanged);
+        }
+        if (openCreatePopupButton)
+        {
+            openCreatePopupButton.onClick.RemoveAllListeners();
+            openCreatePopupButton.onClick.AddListener(() => ShowPanel(createRoomPanel));
+        }
+        if (openJoinPopupButton)
+        {
+            openJoinPopupButton.onClick.RemoveAllListeners();
+            openJoinPopupButton.onClick.AddListener(() => ShowPanel(joinRoomPanel));
+        }
+        if (cancelCreateButton)
+        {
+            cancelCreateButton.onClick.RemoveAllListeners();
+            cancelCreateButton.onClick.AddListener(() => ShowPanel(mainLobbyPanel));
+        }
+        if (cancelJoinButton)
+        {
+            cancelJoinButton.onClick.RemoveAllListeners();
+            cancelJoinButton.onClick.AddListener(() => ShowPanel(mainLobbyPanel));
+        }
+
+        if (passwordInput) passwordInput.gameObject.SetActive(isPrivateDropdown && isPrivateDropdown.value == 1);
+        ShowPanel(mainLobbyPanel);
+    }
+
+    private void ShowPanel(GameObject panel)
+    {
+        if (createRoomPanel) TogglePanel(createRoomPanel, false);
+        if (joinRoomPanel) TogglePanel(joinRoomPanel, false);
+        if (mainLobbyPanel) TogglePanel(mainLobbyPanel, false);
+        if (panel) TogglePanel(panel, true);
+    }
+
+    private void TogglePanel(GameObject go, bool on)
+    {
+        go.SetActive(on);
+        var cg = go.GetComponent<CanvasGroup>();
+        if (!cg) cg = go.AddComponent<CanvasGroup>();
+        cg.alpha = on ? 1f : 0f;
+        cg.interactable = on;
+        cg.blocksRaycasts = on; 
+    }
+
+    private void OnPrivacyChanged(int index)
+    {
+        if (passwordInput) passwordInput.gameObject.SetActive(index == 1);
+    }
+
+    private void ConnectToServer()
     {
         try
         {
@@ -82,11 +191,23 @@ public class UnityClient : MonoBehaviour
         }
         catch (Exception e)
         {
+            isConnected = false;
             Debug.LogError("서버 연결 실패: " + e.Message);
         }
     }
 
-    void ReceiveLoop()
+    private void SafeReconnect()
+    {
+        try { receiveThread?.Abort(); } catch { }
+        try { writer?.Close(); } catch { }
+        try { reader?.Close(); } catch { }
+        try { client?.Close(); } catch { }
+        isConnected = false;
+
+        ConnectToServer();
+    }
+
+    private void ReceiveLoop()
     {
         try
         {
@@ -207,7 +328,8 @@ public class UnityClient : MonoBehaviour
                         {
                             UnityMainThreadDispatcher.Instance().Enqueue(() =>
                             {
-                                SceneManager.LoadScene("MainScene");
+                                pendingReconnectOnLobby = true;       // 로비에서 재접속 예약
+                                SceneManager.LoadScene("MainScene");  // 로비로 이동
                             });
                             break;
                         }
@@ -225,7 +347,8 @@ public class UnityClient : MonoBehaviour
             Debug.LogError($"[ReceiveLoop 예외] {ex.Message}");
         }
     }
-    IEnumerator WaitThenRequestMyOrder(string roomName, bool swap)
+
+    private IEnumerator WaitThenRequestMyOrder(string roomName, bool swap)
     {
         cachedSwap = swap;
         yield return new WaitForSeconds(0.5f);
@@ -235,7 +358,8 @@ public class UnityClient : MonoBehaviour
             Data = roomName
         });
     }
-    void SendToServer(GameMessage msg)
+
+    private void SendToServer(GameMessage msg)
     {
         try
         {
@@ -248,6 +372,7 @@ public class UnityClient : MonoBehaviour
             Debug.LogError("서버 전송 실패: " + e.Message);
         }
     }
+
     public void SendMove(float x, float y)
     {
         var move = new MoveData { x = x, y = y };
@@ -257,40 +382,42 @@ public class UnityClient : MonoBehaviour
             Data = JsonConvert.SerializeObject(move)
         });
     }
+
     public void SendItemPickup(string instanceId)
     {
-        SendToServer(new GameMessage
-        {
-            Type = MessageType.ItemPickup,
-            Data = instanceId
-        });
+        SendToServer(new GameMessage { Type = MessageType.ItemPickup, Data = instanceId });
     }
+
     public void SendDepositBag()
     {
-        SendToServer(new GameMessage
-        {
-            Type = MessageType.DepositBag,
-            Data = ""
-        });
+        SendToServer(new GameMessage { Type = MessageType.DepositBag, Data = "" });
     }
+
     public void RequestRematch()
     {
         SendToServer(new GameMessage { Type = MessageType.RequestRematch, Data = "" });
     }
+
     public void RequestExitToLobby()
     {
         SendToServer(new GameMessage { Type = MessageType.ExitToLobby, Data = "" });
     }
-    void CreateRoom()
+
+    // === 버튼 핸들러(누락되었던 부분 추가) ===
+    private void CreateRoom()
     {
-        if (!isConnected) return;
+        if (!isConnected)
+        {
+            Debug.LogWarning("서버 미연결 상태: CreateRoom 무시");
+            return;
+        }
 
         var room = new RoomData
         {
             Name = roomNameInput ? roomNameInput.text : "Room",
             IsPrivate = isPrivateDropdown ? isPrivateDropdown.value == 1 : false,
             Password = passwordInput ? passwordInput.text : "",
-            MaxPlayers = int.Parse(maxPlayersDropdown.options[maxPlayersDropdown.value].text)
+            MaxPlayers = maxPlayersDropdown ? int.Parse(maxPlayersDropdown.options[maxPlayersDropdown.value].text) : 2
         };
 
         SendToServer(new GameMessage
@@ -300,9 +427,13 @@ public class UnityClient : MonoBehaviour
         });
     }
 
-    void JoinRoom()
+    private void JoinRoom()
     {
-        if (!isConnected) return;
+        if (!isConnected)
+        {
+            Debug.LogWarning("서버 미연결 상태: JoinRoom 무시");
+            return;
+        }
 
         var joinData = new JoinRoomRequest
         {
@@ -317,27 +448,7 @@ public class UnityClient : MonoBehaviour
         });
     }
 
-    void ShowPanel(GameObject panel)
-    {
-        if (!panel) return;
-        if (createRoomPanel) createRoomPanel.SetActive(false);
-        if (joinRoomPanel) joinRoomPanel.SetActive(false);
-        if (mainLobbyPanel) mainLobbyPanel.SetActive(false);
-        panel.SetActive(true);
-    }
-
-    void OnPrivacyChanged(int index)
-    {
-        if (passwordInput) passwordInput.gameObject.SetActive(index == 1);
-    }
-
-    private void OnApplicationQuit()
-    {
-        try { receiveThread?.Abort(); } catch { }
-        try { writer?.Close(); } catch { }
-        try { reader?.Close(); } catch { }
-        try { client?.Close(); } catch { }
-    }
+    [Serializable] public class JoinRoomRequest { public string roomName; public string password; }
 
     [Serializable]
     public class RoomData
@@ -348,7 +459,6 @@ public class UnityClient : MonoBehaviour
         public int MaxPlayers;
     }
 
-    [Serializable] public class JoinRoomRequest { public string roomName; public string password; }
     [Serializable] public class GameMessage { public MessageType Type; public string Data; }
     [Serializable] public class MoveData { public float x; public float y; }
     [Serializable] public class StartGameInfo { public string roomName; public bool swap; }
