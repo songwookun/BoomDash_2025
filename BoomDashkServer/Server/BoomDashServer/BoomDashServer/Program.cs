@@ -500,8 +500,11 @@ public static class MatchServer
                     for (int i = 0; i < qty; i++)
                     {
                         string instanceId = Guid.NewGuid().ToString();
-                        float x = (float)(rng.NextDouble() * (maxX - minX) + minX);
-                        float y = (float)(rng.NextDouble() * (maxY - minY) + minY);
+                        float safeMarginX = 1.5f; 
+                        float safeMarginY = 1.2f;  
+
+                        float x = (float)(rng.NextDouble() * (maxX - minX - 2 * safeMarginX) + (minX + safeMarginX));
+                        float y = (float)(rng.NextDouble() * (maxY - minY - 2 * safeMarginY) + (minY + safeMarginY));
 
                         room.ActiveItemIds.Add(instanceId);
                         room.ItemMap[instanceId] = entry.itemID;
