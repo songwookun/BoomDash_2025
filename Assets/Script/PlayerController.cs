@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections;
 
 public class PlayerController : MonoBehaviour
@@ -7,7 +7,7 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float baseSpeed = 5f;
 
     private float currentSpeed;
-    private float minX = -9f, maxX = 9f, minY = -5f, maxY = 5f;
+    private float minX = -9f, maxX = 9f, minY = -5f, maxY = 4.3f;
 
     private Bounds forbidden;
     private bool hasForbidden = false;
